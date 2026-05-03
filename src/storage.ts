@@ -13,6 +13,7 @@ export interface Member {
   avatar?: string;
   avatarName?: string;
   bio?: string;
+  isMainFounder?: boolean;
 }
 
 const firebaseConfig = {
@@ -94,4 +95,8 @@ export async function removeMember(id: string): Promise<boolean> {
     i++;
   }
   return true;
+}
+
+export async function toggleMainFounder(id: string, isMainFounder: boolean): Promise<void> {
+  await updateDoc(doc(db, 'members', id), { isMainFounder });
 }

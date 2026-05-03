@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 // @ts-ignore
 import confetti from 'canvas-confetti';
-import { getMembers, subscribeToMembers, addMember, isMemberByEmail, removeMember, updateMember, type Member } from './storage';
+import { getMembers, subscribeToMembers, addMember, isMemberByEmail, removeMember, updateMember, toggleMainFounder, type Member } from './storage';
 import { useInView } from './useInView';
 import { signInWithGoogle } from './googleAuth';
 
@@ -364,22 +364,45 @@ function ProfileEditorModal({ member, onClose, onUpdate }: { member: Member; onC
 }
 
 /* ─── Founder Detail Modal ─── */
-function FounderDetailModal({ member, onClose }: { member: Member; onClose: () => void }) {
+function FounderDetailModal({ member, displayTitle, onClose }: { member: Member; displayTitle: string; onClose: () => void }) {
   return (
     <div className="detail-overlay" onClick={onClose}>
-      <div className="detail-card" onClick={e => e.stopPropagation()}>
+      <div className="detail-card" onClick={e => e.stopPropagation()} style={{ textAlign: 'center' }}>
         <button className="modal-close" onClick={onClose}>×</button>
         
         {member.avatar ? (
-          <img src={member.avatar} className="detail-avatar" alt={member.firstName} />
+          <img src={member.avatar} className="detail-avatar" alt={member.firstName} style={{ margin: '0 auto 1rem', display: 'block' }} />
         ) : (
-          <div className="detail-avatar-placeholder">🏛</div>
+          <div className="detail-avatar-placeholder" style={{ margin: '0 auto 1rem' }}>🏛</div>
         )}
         
         <div className="detail-name">{member.fullName}</div>
         <div className="detail-meta">Grade {member.grade} • Class {member.classGroup}</div>
         
-        <div className="detail-badge">Founding Member #{member.memberNumber}</div>
+        <div className="detail-badge" style={{ 
+          background: member.isMainFounder ? 'linear-gradient(135deg, #d4a853, #f0c75e)' : '',
+          color: member.isMainFounder ? '#111' : '',
+          fontWeight: member.isMainFounder ? 700 : 500
+        }}>
+          {member.isMainFounder && '👑 '} {displayTitle}
+        </div>
+
+        {member.isMainFounder && (
+          <div className="meeting-notice" style={{
+            background: 'rgba(212, 168, 83, 0.15)',
+            border: '1px solid var(--gold)',
+            color: 'var(--gold)',
+            padding: '8px 12px',
+            borderRadius: '6px',
+            fontSize: '0.8rem',
+            marginTop: '1rem',
+            marginBottom: '1rem',
+            fontWeight: 600,
+            animation: 'pulse 2s infinite'
+          }}>
+            A meeting is gonna be host soon, stay updated.
+          </div>
+        )}
         
         {member.avatarName && (
           <div className="detail-anime-label">Represented by {member.avatarName}</div>
@@ -456,7 +479,7 @@ function ValueCard({ icon, title, text, delay }: { icon: string; title: string; 
 }
 
 /* ─── Hall of Founders ─── */
-function HallOfFounders({ members, isAdmin, onDelete, onMemberClick }: { members: Member[]; isAdmin: boolean; onDelete: (id: string, name: string) => void; onMemberClick: (m: Member) => void }) {
+function HallOfFounders({ members, isAdmin, onDelete, onToggleMain, onMemberClick }: { members: (Member & { displayTitle: string })[]; isAdmin: boolean; onDelete: (id: string, name: string) => void; onToggleMain: (id: string, isMain: boolean) => void; onMemberClick: (m: Member & { displayTitle: string }) => void }) {
   const { ref, visible } = useInView(0.1);
   const complete = members.length >= MAX;
 
@@ -465,7 +488,7 @@ function HallOfFounders({ members, isAdmin, onDelete, onMemberClick }: { members
       <div className="hall-inner">
         <h2 className="section-title">Hall of <span className="gold-accent">Founders</span></h2>
         <p className="hall-subtitle">"These students chose to lead before the room was full."</p>
-        {isAdmin && <p style={{ fontSize: '0.75rem', color: 'var(--amber)', textAlign: 'center', marginBottom: '1rem' }}>🔑 Admin mode — click ✕ to remove a member</p>}
+        {isAdmin && <p style={{ fontSize: '0.75rem', color: 'var(--amber)', textAlign: 'center', marginBottom: '1rem' }}>🔑 Admin mode — click ✕ to remove, 👑 to toggle Main Founder</p>}
         <div className={`founders-wall ${complete ? 'complete' : ''}`}>
           {members.length === 0 ? (
             <div className="wall-empty">The wall awaits its first name.</div>
@@ -474,28 +497,47 @@ function HallOfFounders({ members, isAdmin, onDelete, onMemberClick }: { members
               <div 
                 key={m.id} 
                 className="founder-name" 
-                style={{ animationDelay: `${i * 0.1}s`, position: 'relative' }}
+                style={{ 
+                  animationDelay: `${i * 0.1}s`, 
+                  position: 'relative',
+                  border: m.isMainFounder ? '1px solid var(--gold)' : '',
+                  boxShadow: m.isMainFounder ? '0 0 15px rgba(212,168,83,0.3)' : ''
+                }}
                 onClick={() => onMemberClick(m)}
               >
                 {m.avatar ? (
-                  <img src={m.avatar} className="founder-avatar" alt={m.firstName} />
+                  <img src={m.avatar} className="founder-avatar" alt={m.firstName} style={{ border: m.isMainFounder ? '2px solid var(--gold)' : '' }} />
                 ) : (
-                  <div className="founder-avatar-placeholder">🏛</div>
+                  <div className="founder-avatar-placeholder" style={{ border: m.isMainFounder ? '2px solid var(--gold)' : '' }}>🏛</div>
                 )}
-                <span>{m.firstName}, {m.grade}</span>
+                <span>
+                  {m.isMainFounder && '👑 '}
+                  {m.firstName}, {m.grade}
+                </span>
+                
                 {isAdmin && (
-                  <button
-                    onClick={(e) => { e.stopPropagation(); onDelete(m.id, m.fullName); }}
-                    style={{
-                      position: 'absolute', top: -6, right: -6,
-                      width: 20, height: 20, borderRadius: '50%',
-                      background: '#ef4444', border: 'none', color: '#fff',
-                      fontSize: '0.65rem', cursor: 'pointer', lineHeight: '20px',
-                      padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      boxShadow: '0 2px 6px rgba(0,0,0,0.4)',
-                    }}
-                    title={`Remove ${m.fullName}`}
-                  >✕</button>
+                  <div style={{ position: 'absolute', top: -10, right: -10, display: 'flex', gap: '4px' }}>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); onToggleMain(m.id, !m.isMainFounder); }}
+                      style={{
+                        width: 22, height: 22, borderRadius: '50%',
+                        background: m.isMainFounder ? 'var(--gold)' : '#333', border: '1px solid var(--gold)', color: m.isMainFounder ? '#111' : '#fff',
+                        fontSize: '0.7rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        boxShadow: '0 2px 6px rgba(0,0,0,0.4)',
+                      }}
+                      title="Toggle Main Founder"
+                    >👑</button>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); onDelete(m.id, m.fullName); }}
+                      style={{
+                        width: 22, height: 22, borderRadius: '50%',
+                        background: '#ef4444', border: 'none', color: '#fff',
+                        fontSize: '0.65rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        boxShadow: '0 2px 6px rgba(0,0,0,0.4)',
+                      }}
+                      title={`Remove ${m.fullName}`}
+                    >✕</button>
+                  </div>
                 )}
               </div>
             ))
@@ -602,12 +644,23 @@ export default function App() {
   // User auth state
   const [loggedInUser, setLoggedInUser] = useState<Member | null>(null);
   const [profileModalOpen, setProfileModalOpen] = useState(false);
-  const [selectedFounder, setSelectedFounder] = useState<Member | null>(null);
+  const [selectedFounder, setSelectedFounder] = useState<(Member & { displayTitle: string }) | null>(null);
 
   const isAdmin = adminEmail === ADMIN_EMAIL;
   const count = members.length;
   const urgent = count >= 13 && count < MAX;
   const full = count >= MAX;
+
+  // Process members for display titles
+  let regularCount = 0;
+  const enrichedMembers = members.map(m => {
+    if (m.isMainFounder) {
+      return { ...m, displayTitle: "Main Founder" };
+    } else {
+      regularCount++;
+      return { ...m, displayTitle: `Founding Member #${regularCount}` };
+    }
+  });
 
   const headline = "The Founding Seats Are Filling.";
   const { displayed, done } = useTyping(headline, 65);
@@ -765,9 +818,10 @@ export default function App() {
 
       {/* ④ Hall of Founders */}
       <HallOfFounders 
-        members={members} 
+        members={enrichedMembers} 
         isAdmin={isAdmin} 
         onDelete={handleDeleteMember}
+        onToggleMain={async (id, isMain) => await toggleMainFounder(id, isMain)}
         onMemberClick={(m) => setSelectedFounder(m)} 
       />
 
@@ -809,6 +863,7 @@ export default function App() {
       {selectedFounder && (
         <FounderDetailModal 
           member={selectedFounder} 
+          displayTitle={selectedFounder.displayTitle}
           onClose={() => setSelectedFounder(null)} 
         />
       )}
