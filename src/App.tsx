@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+// @ts-ignore
 import confetti from 'canvas-confetti';
 import { getMembers, subscribeToMembers, addMember, isMemberByEmail, removeMember, updateMember, type Member } from './storage';
 import { useInView } from './useInView';

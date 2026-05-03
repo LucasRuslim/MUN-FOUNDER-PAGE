@@ -74,7 +74,7 @@ export function signInWithGoogle(): Promise<GoogleUser> {
     }
 
     function initializeAndSignIn() {
-      if (GOOGLE_CLIENT_ID === 'YOUR_CLIENT_ID_HERE.apps.googleusercontent.com') {
+      if (!GOOGLE_CLIENT_ID) {
         reject(new Error(
           'Google Client ID not configured. Please follow the setup instructions in src/googleAuth.ts'
         ));
