@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\lucas\\\\Desktop\\\\Sign up\" -Recurse)",
+      "Bash(Select-Object FullName, PSIsContainer)",
+      "Bash(Format-Table -AutoSize)",
+      "PowerShell($py = \\(Get-Command python -ErrorAction SilentlyContinue\\).Source; if \\(-not $py\\) { $py = \\(Get-Command py -ErrorAction SilentlyContinue\\).Source }; Write-Output \"PY=$py\"; & $py --version)",
+      "PowerShell($dest = \"C:\\\\Users\\\\lucas\\\\Desktop\\\\Sign up\\\\public\\\\un-hall.jpg\"; $headers = @{ \"User-Agent\" = \"YouhuaMUN-Site/1.0 \\(educational project; contact lucas1121.lin@gmail.com\\)\" }; try { Invoke-WebRequest -Uri \"https://upload.wikimedia.org/wikipedia/commons/0/05/UN_General_Assembly_hall.jpg\" -OutFile $dest -Headers $headers -UseBasicParsing -ErrorAction Stop; $f = Get-Item $dest; Write-Output \\(\"OK {0} bytes\" -f $f.Length\\) } catch { Write-Output \\(\"FAIL: \" + $_.Exception.Message\\) })",
+      "PowerShell(Start-Process \"http://localhost:5173\")",
+      "mcp__Claude_Preview__preview_start",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(gh api *)"
+    ]
+  }
+}

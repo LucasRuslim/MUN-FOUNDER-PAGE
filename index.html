@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Become a Founding Member of the MUN Club. Only 15 seats available — ever. Claim your place in the Hall of Founders before the charter is sealed." />
+    <meta name="keywords" content="Model United Nations, MUN, Founding Member, Leadership, Debate, Diplomacy" />
+    <title>MUN Club — Founding Member Registration</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;0,700;1,300;1,400;1,500;1,600;1,700&family=Epilogue:ital,wght@0,100..900;1,100..900&display=swap" rel="stylesheet">
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
+  </head>
+  <body class="intro-active">
+    <div id="root"></div>
+    <script>
+      /* Hard fail-safe: the intro must never permanently darken the page. */
+      setTimeout(function () { document.body.classList.remove('intro-active'); }, 6000);
+    </script>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

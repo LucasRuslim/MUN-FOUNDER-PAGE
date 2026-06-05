@@ -1,0 +1,103 @@
+# Design Rules — Impeccable + Taste Skill + Awesome Design MD
+# Source: pbakaus/impeccable · Leonxlnx/taste-skill · VoltAgent/awesome-design-md
+# Applied permanently to every UI change in this project.
+
+## THE SLOP TEST
+Before shipping any UI: "Would someone immediately know an AI generated this?" If yes, restart.
+Name a specific reference before committing to any design direction.
+
+## ABSOLUTE BANS — never produce these
+- Side-stripe / left-border accent cards
+- Gradient text (background-clip: text)
+- Default glassmorphism without a brand reason
+- Hero metric sections ("10M users · 99.9% uptime")
+- Three identical feature cards with icon + heading + body
+- Tiny uppercase tracked labels (FEATURES, WHY US) on every section
+- Numbered section decorators (01 · 02 · 03) as scaffolding
+- Bounce / elastic CSS easing (cubic-bezier overshoot)
+- Dark glows on dark backgrounds
+- Em-dashes (—) in UI copy
+- Beige + brass "premium consumer" palette without explicit brief
+- Cards nested inside cards
+- Text overflow at any breakpoint
+
+## FONT REJECT LIST — never use as display/brand font
+Inter · Fraunces · Newsreader · Lora · Crimson · Crimson Pro · Playfair Display
+Cormorant · Cormorant Garamond · Syne · IBM Plex Mono · IBM Plex Sans · Space Mono
+Space Grotesk · DM Sans · DM Serif Display · Outfit · Plus Jakarta Sans · Instrument Sans
+
+## TYPE RULES
+- Body minimum: 16px; never px for font-size
+- Hierarchy ratio: ≥1.25× between steps
+- Line length: max 65ch (max-width: 65ch)
+- Body line-height: 1.5–1.7; headings: 1.1–1.2
+- text-wrap: balance on headings
+- tabular-nums on all numeric/currency content
+- 2–3 font families max
+- Semantic token names (--text-body, --text-heading)
+
+## COLOR RULES
+- Use OKLCH throughout
+- Body text contrast ≥4.5:1 (WCAG AA)
+- Never pure black (#000) — always tint neutrals
+- Never gray text on colored backgrounds without contrast check
+- 60-30-10 visual weight distribution
+- Always provide dark mode or explicitly opt out
+
+## SPACING RULES
+- Base unit: 4px. All values must be multiples: 4, 8, 12, 16, 24, 32, 48, 64, 96px
+- Semantic tokens (--space-sm, --space-md) — never arbitrary values
+- Section padding: 96px; card internal: 24–32px
+- Max content width: ~1200px centered
+- Never identical spacing everywhere — rhythm needs contrast
+
+## LAYOUT RULES
+- Flexbox for 1D; Grid for 2D
+- Responsive: grid-template-columns: repeat(auto-fit, minmax(280px, 1fr))
+- Squint test: primary/secondary/grouped must be distinguishable blurred
+- Container queries for components; viewport queries for page layout
+
+## MOTION RULES
+- Every animation needs semantic purpose — no fade-on-scroll everywhere
+- Exponential easing (e.g. cubic-bezier(0.16, 1, 0.3, 1)); no bounce/elastic
+- @media (prefers-reduced-motion: reduce) always required
+- Never gate content visibility on a transition
+
+## COMPONENT RULES
+- Buttons: min 40×40px touch target; one filled CTA per visual band
+- Cards: vary sizes/spans; never nest; 24–32px internal padding
+- Inputs: 40px height; 8px radius; visible focus state always
+- Never remove keyboard focus ring
+
+## ACCESSIBILITY
+- Semantic HTML: nav, main, article, section, button — never div for interactive
+- All interactive elements keyboard-navigable
+- Never skip heading levels
+- ARIA labels on icon-only buttons
+- aria-live for dynamic content
+
+## ANTI-SLOP CHECKLIST (before declaring any UI work done)
+[ ] No reject-list font as display/brand font
+[ ] No gradient text
+[ ] No side-stripe cards
+[ ] No glassmorphism without brand reason
+[ ] No hero metric section
+[ ] No three-up identical feature cards
+[ ] No repeated uppercase kicker labels
+[ ] No numbered section decorators
+[ ] No bounce easing
+[ ] No em-dash in copy
+[ ] No text overflow at 320px
+[ ] All spacing is 4pt multiples
+[ ] No pure black or untinted neutrals
+[ ] Contrast ≥4.5:1 on all body text
+[ ] Focus ring visible on all interactive elements
+[ ] prefers-reduced-motion handled
+[ ] Mobile verified at 375px and 320px
+[ ] Touch targets ≥40×40px
+
+## DESIGN.MD STANDARD
+New projects: create DESIGN.md with these 9 sections:
+1. Visual Theme  2. Color Semantics  3. Typographic Hierarchy  4. Component Styling
+5. Layout Principles  6. Depth System  7. Design Constraints
+8. Responsive Strategy  9. Agent Prompt Guide
