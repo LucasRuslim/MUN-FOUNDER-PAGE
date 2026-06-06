@@ -17,6 +17,9 @@
  * 7. Copy the Client ID and paste it below
  */
 
+import { GoogleAuthProvider, signInWithCredential } from 'firebase/auth';
+import { auth } from './storage';
+
 // ⚠️ REPLACE THIS with your actual Google OAuth Client ID
 const GOOGLE_CLIENT_ID = '480889035387-h3dapptsn37dpkb5109q5qf1g0k95l2l.apps.googleusercontent.com';
 
@@ -72,7 +75,7 @@ function ensureInit() {
   if (initialized) return;
   google.accounts.id.initialize({
     client_id: GOOGLE_CLIENT_ID,
-    callback: (response: { credential: string }) => {
+    callback: async (response: { credential: string }) => {
       try {
         const payload = decodeJwtPayload(response.credential);
         const user: GoogleUser = {
@@ -82,6 +85,16 @@ function ensureInit() {
           sub: payload.sub as string,
         };
         cachedUser = user;
+        // Exchange Google's ID token for a Firebase Auth session so Firestore
+        // security rules can verify the user (request.auth / request.auth.token.email).
+        // Failures are non-fatal: the sign-in UI still works; only secured writes
+        // require this to succeed (see Firestore rules).
+        try {
+          const cred = GoogleAuthProvider.credential(response.credential);
+          await signInWithCredential(auth, cred);
+        } catch (e) {
+          console.error('Firebase Auth sign-in failed:', e);
+        }
         const resolvers = pendingResolvers;
         pendingResolvers = [];
         resolvers.forEach((r) => r(user));

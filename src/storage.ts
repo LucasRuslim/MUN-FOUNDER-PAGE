@@ -1,5 +1,6 @@
 import { initializeApp } from "firebase/app";
 import { getFirestore, collection, doc, setDoc, deleteDoc, updateDoc, onSnapshot, getDocs, query, orderBy } from "firebase/firestore";
+import { getAuth } from "firebase/auth";
 
 export interface Member {
   id: string;
@@ -27,6 +28,9 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
+// Firebase Auth session — populated when the user signs in with Google so that
+// Firestore security rules can verify them via request.auth.
+export const auth = getAuth(app);
 
 const MAX_MEMBERS = 15;
 
