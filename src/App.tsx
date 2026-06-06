@@ -243,10 +243,10 @@ function Navbar({ onMenu, seatsLeft, full }: { onMenu: () => void; seatsLeft: nu
 /* ─── Slide-out Menu ─── */
 function SideMenu({ onClose }: { onClose: () => void }) {
   const links = [
-    { idx: '01', label: 'The Chamber', id: 'hero' },
-    { idx: '02', label: 'The Privilege', id: 'value' },
-    { idx: '03', label: 'The Founders', id: 'hall' },
-    { idx: '04', label: 'The Mission', id: 'about' },
+    { label: 'The Chamber', id: 'hero' },
+    { label: 'The Privilege', id: 'value' },
+    { label: 'The Founders', id: 'hall' },
+    { label: 'The Mission', id: 'about' },
   ];
   const go = (id: string) => { onClose(); setTimeout(() => scrollToId(id), 220); };
   return (
@@ -256,7 +256,7 @@ function SideMenu({ onClose }: { onClose: () => void }) {
         <button className="menu-close" onClick={onClose} aria-label="Close menu">×</button>
         {links.map((l) => (
           <button key={l.id} className="menu-link" onClick={() => go(l.id)}>
-            <span className="menu-idx">{l.idx}</span>{l.label}
+            <span className="menu-mark" aria-hidden="true">◆</span>{l.label}
           </button>
         ))}
         <div className="menu-footer">Youhua School · Model United Nations · Est. 2026</div>
@@ -318,17 +318,6 @@ function AudioToggle() {
       <span className="audio-bars"><span /><span /><span /><span /></span>
       <span className="audio-label">{playing ? 'Sound On' : 'Ambience'}</span>
     </button>
-  );
-}
-
-/* ─── Chapter Label ─── */
-function ChapterLabel({ text }: { text: string }) {
-  return (
-    <div className="chapter-label">
-      <span className="ch-line" />
-      <span className="ch-num">{text}</span>
-      <span className="ch-line right" />
-    </div>
   );
 }
 
@@ -1033,14 +1022,13 @@ function Certificate({ member, onClose }: { member: Member; onClose: () => void 
 /* ─── Value Proposition Section ─── */
 function ValueSection() {
   const cards = [
-    { num: '01', title: 'Your Name, On This Wall', text: 'Permanently listed in the Hall of Founders on this website. Not a temporary badge — a lasting record of your leadership.' },
-    { num: '02', title: 'College Application Ready', text: 'Founding Member status is verifiable and can be listed on Common App, UCAS, or any university portfolio as a leadership credential.' },
-    { num: '03', title: 'You Helped Build This', text: 'First-generation members define the club\'s culture, traditions, and direction. Your voice shapes what this becomes.' },
+    { title: 'Your Name, On This Wall', text: 'Permanently listed in the Hall of Founders on this website. Not a temporary badge, but a lasting record of your leadership.', featured: true },
+    { title: 'College Application Ready', text: 'Founding Member status is verifiable and can be listed on Common App, UCAS, or any university portfolio as a leadership credential.' },
+    { title: 'You Helped Build This', text: 'First-generation members define the club\'s culture, traditions, and direction. Your voice shapes what this becomes.' },
   ];
 
   return (
     <section className="section" id="value">
-      <ChapterLabel text="Dossier 02" />
       <div className="section-eyebrow">The Privilege</div>
       <h2 className="section-title">What Does <span className="gold-accent">Founding Member</span> Mean?</h2>
       <div className="cards-grid">
@@ -1050,7 +1038,7 @@ function ValueSection() {
   );
 }
 
-function ValueCard({ num, title, text }: { num: string; title: string; text: string }) {
+function ValueCard({ title, text, featured }: { title: string; text: string; featured?: boolean }) {
   const [tilting, setTilting] = useState(false);
 
   const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -1058,9 +1046,9 @@ function ValueCard({ num, title, text }: { num: string; title: string; text: str
     const rect = card.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
-    const rotateX = ((y - rect.height / 2) / rect.height) * -14;
-    const rotateY = ((x - rect.width / 2) / rect.width) * 14;
-    card.style.transform = `perspective(900px) rotateX(${rotateX}deg) rotateY(${rotateY}deg) translateZ(14px)`;
+    const rotateX = ((y - rect.height / 2) / rect.height) * -7;
+    const rotateY = ((x - rect.width / 2) / rect.width) * 7;
+    card.style.transform = `perspective(1100px) rotateX(${rotateX}deg) rotateY(${rotateY}deg) translateZ(8px)`;
     card.style.setProperty('--mx', `${(x / rect.width) * 100}%`);
     card.style.setProperty('--my', `${(y / rect.height) * 100}%`);
     setTilting(true);
@@ -1069,11 +1057,10 @@ function ValueCard({ num, title, text }: { num: string; title: string; text: str
 
   return (
     <div
-      className={`value-card ${tilting ? 'tilting' : ''}`}
+      className={`value-card ${featured ? 'featured' : ''} ${tilting ? 'tilting' : ''}`}
       onMouseMove={handleMouseMove}
       onMouseLeave={handleMouseLeave}
     >
-      <div className="card-number">{num}</div>
       <div className="card-title">{title}</div>
       <div className="card-text">{text}</div>
     </div>
@@ -1163,7 +1150,6 @@ function HallOfFounders({ members, onSeatClick }: { members: EnrichedMember[]; o
   return (
     <section className="hall" id="hall" ref={ref}>
       <div className="hall-inner">
-        <ChapterLabel text="Dossier 03" />
         <div className="section-eyebrow">The Charter</div>
         <h2 className="section-title">Hall of <span className="gold-accent">Founders</span></h2>
         <p className="hall-subtitle">"These students chose to lead before the room was full."</p>
@@ -1218,7 +1204,6 @@ function AboutSection() {
 
   return (
     <section className="section about-section" id="about">
-      <ChapterLabel text="Dossier 04" />
       <div className="section-eyebrow">The Mission</div>
       <h2 className="section-title">What Is <span className="gold-accent">Model United Nations</span>?</h2>
       <p className="about-intro">
@@ -1305,7 +1290,6 @@ function useScrollFX() {
       };
 
       gsap.utils.toArray<HTMLElement>('.section-title').forEach((el) => reveal(el, el, { y: 56 }));
-      gsap.utils.toArray<HTMLElement>('.chapter-label').forEach((el) => reveal(el, el, { y: 24 }));
       gsap.utils.toArray<HTMLElement>('.section-eyebrow, .about-intro, .hall-subtitle').forEach((el) =>
         reveal(el, el, { y: 26 }));
 
@@ -1315,12 +1299,6 @@ function useScrollFX() {
       // Seats rise from the centre outward so both sides reveal evenly (no slow side).
       reveal('.seat', '.hall-chamber', { y: 30, stagger: { each: 0.025, from: 'center' } });
       reveal('.pull-quote', '.pull-quote',   { y: 56 });
-
-      /* DEPTH PARALLAX — big numbers drift */
-      gsap.utils.toArray<HTMLElement>('.card-number').forEach((el) => {
-        gsap.fromTo(el, { yPercent: 18 }, { yPercent: -22, ease: 'none',
-          scrollTrigger: { trigger: el, start: 'top bottom', end: 'bottom top', scrub: true } });
-      });
 
       /* TOP SCROLL-PROGRESS BAR */
       gsap.to('.scroll-progress-fill', { scaleX: 1, ease: 'none',
