@@ -9,7 +9,10 @@
       "PowerShell(Start-Process \"http://localhost:5173\")",
       "mcp__Claude_Preview__preview_start",
       "WebFetch(domain:raw.githubusercontent.com)",
-      "Bash(gh api *)"
+      "Bash(gh api *)",
+      "Bash(npm install *)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)"
     ]
   }
 }
