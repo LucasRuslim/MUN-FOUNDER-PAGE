@@ -20,8 +20,11 @@
 import { GoogleAuthProvider, signInWithCredential } from 'firebase/auth';
 import { auth } from './storage';
 
-// ⚠️ REPLACE THIS with your actual Google OAuth Client ID
-const GOOGLE_CLIENT_ID = '480889035387-h3dapptsn37dpkb5109q5qf1g0k95l2l.apps.googleusercontent.com';
+// Google OAuth Client ID — the Firebase project's own web client (project
+// mun-founder-page / 542302214003). Using Firebase's own client means the
+// sign-in token's audience matches Firebase Auth directly, so signInWithCredential
+// works without safelisting an external client.
+const GOOGLE_CLIENT_ID = '542302214003-hn8drtt1apc2blgk6nir56np4iuqob5i.apps.googleusercontent.com';
 
 export interface GoogleUser {
   name: string;
