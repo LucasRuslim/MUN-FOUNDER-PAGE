@@ -711,10 +711,11 @@ body.intro-active .intro-scan {
 
 .hero-sub {
   font-size: clamp(0.95rem, 2.2vw, 1.15rem);
-  color: var(--silver);
+  color: var(--ice);
   margin-top: 1.1rem;
-  font-weight: 300;
+  font-weight: 400;
   letter-spacing: 0.03em;
+  text-shadow: 0 2px 16px rgba(3,6,14,0.92), 0 0 4px rgba(3,6,14,0.7);
 }
 
 /* Progress ring */
@@ -740,7 +741,8 @@ body.intro-active .intro-scan {
 }
 .ring-label {
   font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.2em;
-  color: var(--silver-dim); margin-top: 6px;
+  color: var(--ice); margin-top: 6px;
+  text-shadow: 0 1px 10px rgba(3,6,14,0.9), 0 0 3px rgba(3,6,14,0.7);
 }
 
 /* Dual hero stat — Founders (sealed) beside Delegates (open) */
@@ -761,10 +763,11 @@ body.intro-active .intro-scan {
   font-size: 0.58rem;
   letter-spacing: 0.22em;
   text-transform: uppercase;
-  color: var(--silver-dim);
+  color: var(--ice);
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  text-shadow: 0 1px 8px rgba(3,6,14,0.85);
 }
 .hero-stat-cap.open { color: var(--azure-bright); }
 .cap-dot {
