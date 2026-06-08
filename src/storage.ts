@@ -58,6 +58,7 @@ export function getMembers(): Member[] {
 export async function addMember(data: Omit<Member, 'memberNumber' | 'joinedAt' | 'id'>): Promise<Member | null> {
   if (currentMembers.length >= MAX_MEMBERS) return null;
   if (currentMembers.some(m => m.email === data.email)) return null;
+  if (currentDelegates.some(d => d.email === data.email)) return null; // one email can't be both
 
   const newId = crypto.randomUUID();
   const member: Member = {
@@ -166,6 +167,7 @@ export function isDelegateByEmail(email: string): Delegate | undefined {
 
 export async function addDelegate(data: Omit<Delegate, 'delegateNumber' | 'joinedAt' | 'id'>): Promise<Delegate | null> {
   if (currentDelegates.some(d => d.email === data.email)) return null;
+  if (currentMembers.some(m => m.email === data.email)) return null; // one email can't be both
   const newId = crypto.randomUUID();
   const delegate: Delegate = {
     ...data,

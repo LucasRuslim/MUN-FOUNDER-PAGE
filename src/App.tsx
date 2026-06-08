@@ -383,7 +383,7 @@ function RegistrationModal({ onClose, onSuccess, count, preAuth }: {
   count: number;
   preAuth: GoogleUser | null;
 }) {
-  const [step, setStep] = useState<'auth' | 'form' | 'welcome'>('auth');
+  const [step, setStep] = useState<'auth' | 'form' | 'welcome' | 'blocked'>('auth');
   const [authUser, setAuthUser] = useState<{ name: string; email: string } | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -395,6 +395,8 @@ function RegistrationModal({ onClose, onSuccess, count, preAuth }: {
   const applyUser = useCallback((user: { name: string; email: string }) => {
     setAuthUser({ name: user.name, email: user.email });
     setFullName((prev) => prev || user.name);
+    // One account can't be both: block if this email is already a Founding Delegate.
+    if (isDelegateByEmail(user.email)) { setStep('blocked'); return; }
     const existing = isMemberByEmail(user.email);
     if (existing) { setExistingMember(existing); setStep('welcome'); }
     else { setStep('form'); }
@@ -466,6 +468,14 @@ function RegistrationModal({ onClose, onSuccess, count, preAuth }: {
             <div className="modal-title">Welcome back, {existingMember.firstName}.</div>
             <p className="modal-subtitle">Your seat is secured. You are Founding Member #{existingMember.memberNumber}.</p>
             <div className="wb-badge">◆ Founding Member</div>
+          </div>
+        )}
+
+        {step === 'blocked' && (
+          <div className="welcome-back">
+            <div className="modal-title">You're already a Founding Delegate</div>
+            <p className="modal-subtitle">This account is registered as a Delegate. One account can be a Founder or a Delegate, not both.</p>
+            <div className="wb-badge">◆ Founding Delegate</div>
           </div>
         )}
 
@@ -1531,7 +1541,7 @@ function DelegateModal({ onClose, onSuccess, preAuth }: {
   onSuccess: (d: Delegate) => void;
   preAuth: GoogleUser | null;
 }) {
-  const [step, setStep] = useState<'auth' | 'form' | 'welcome'>('auth');
+  const [step, setStep] = useState<'auth' | 'form' | 'welcome' | 'blocked'>('auth');
   const [authUser, setAuthUser] = useState<{ name: string; email: string } | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1544,6 +1554,8 @@ function DelegateModal({ onClose, onSuccess, preAuth }: {
   const applyUser = useCallback((user: { name: string; email: string }) => {
     setAuthUser({ name: user.name, email: user.email });
     setFullName(prev => prev || user.name);
+    // One account can't be both: block if this email already holds a Founding Seat.
+    if (isMemberByEmail(user.email)) { setStep('blocked'); return; }
     const existing = isDelegateByEmail(user.email);
     if (existing) { setCreated(existing); setStep('welcome'); }
     else setStep('form');
@@ -1628,6 +1640,14 @@ function DelegateModal({ onClose, onSuccess, preAuth }: {
             <div className="modal-title">Welcome, {created.firstName}.</div>
             <p className="modal-subtitle">You are Founding Delegate #{created.delegateNumber}. Your name now stands on the record.</p>
             <div className="wb-badge">◆ Founding Delegate</div>
+          </div>
+        )}
+
+        {step === 'blocked' && (
+          <div className="welcome-back">
+            <div className="modal-title">You're already a Founding Member</div>
+            <p className="modal-subtitle">This account holds a Founding Seat. One account can be a Founder or a Delegate, not both.</p>
+            <div className="wb-badge">◆ Founding Member</div>
           </div>
         )}
       </div>
