@@ -5,7 +5,7 @@ import confetti from 'canvas-confetti';
 import Lenis from '@studio-freight/lenis';
 import { gsap } from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
-import { getMembers, subscribeToMembers, addMember, isMemberByEmail, removeMember, updateMember, toggleMainFounder, type Member } from './storage';
+import { getMembers, subscribeToMembers, addMember, isMemberByEmail, removeMember, updateMember, toggleMainFounder, getDelegates, subscribeToDelegates, addDelegate, isDelegateByEmail, updateDelegate, removeDelegate, promoteEarliestDelegate, swapMemberSeats, setBesties, clearBesties, type Member, type Delegate } from './storage';
 import { useInView } from './useInView';
 import { signInWithGoogle, getCachedGoogleUser, renderGoogleButton, type GoogleUser } from './googleAuth';
 
@@ -21,6 +21,7 @@ const CHAPTERS = [
   { id: 'hero',  label: 'The Chamber' },
   { id: 'value', label: 'The Privilege' },
   { id: 'hall',  label: 'The Founders' },
+  { id: 'delegation', label: 'The Delegation' },
   { id: 'about', label: 'The Mission' },
 ];
 
@@ -34,6 +35,13 @@ function scrollToId(id: string) {
 }
 
 const CONFETTI_BLUES = ['#4c8dff', '#84b6ff', '#2f63d6', '#c4dbff', '#eef3fb'];
+
+/* Distinct, warm-leaning glow colors for bestie pairs so they pop against the blue council */
+const BESTIE_COLORS = ['#ff7eb6', '#a78bfa', '#5eead4', '#fcd34d', '#fca5a5', '#7dd3fc', '#86efac', '#f0abfc'];
+function nextBestieColor(members: { bestieColor?: string }[]): string {
+  const used = new Set(members.map(m => m.bestieColor).filter(Boolean) as string[]);
+  return BESTIE_COLORS.find(c => !used.has(c)) || BESTIE_COLORS[Math.floor(Math.random() * BESTIE_COLORS.length)];
+}
 
 /* ─── Smooth scroll (Lenis) + ScrollTrigger sync ─── */
 function useSmoothScroll() {
@@ -246,6 +254,7 @@ function SideMenu({ onClose }: { onClose: () => void }) {
     { label: 'The Chamber', id: 'hero' },
     { label: 'The Privilege', id: 'value' },
     { label: 'The Founders', id: 'hall' },
+    { label: 'The Delegation', id: 'delegation' },
     { label: 'The Mission', id: 'about' },
   ];
   const go = (id: string) => { onClose(); setTimeout(() => scrollToId(id), 220); };
@@ -494,7 +503,7 @@ function RegistrationModal({ onClose, onSuccess, count, preAuth }: {
 }
 
 /* ─── Profile Editor Modal ─── */
-function ProfileEditorModal({ member, onClose, onUpdate }: { member: Member; onClose: () => void; onUpdate: () => void }) {
+function ProfileEditorModal({ member, onClose, onUpdate, numberLabel, saveFn }: { member: Member; onClose: () => void; onUpdate: () => void; numberLabel?: string; saveFn?: (email: string, updates: Partial<Pick<Member, 'fullName' | 'firstName' | 'grade' | 'classGroup' | 'avatar' | 'avatarName' | 'bio'>>) => Promise<any> }) {
   const [fullName, setFullName] = useState(member.fullName);
   const [grade, setGrade] = useState(member.grade);
   const [classGroup, setClassGroup] = useState(member.classGroup);
@@ -625,7 +634,7 @@ function ProfileEditorModal({ member, onClose, onUpdate }: { member: Member; onC
   const handleSave = async () => {
     if (!fullName || !grade || !classGroup) { alert('Name, grade, and class are required.'); return; }
     setSaving(true);
-    await updateMember(member.email, {
+    await (saveFn ?? updateMember)(member.email, {
       fullName, grade, classGroup, bio,
       avatar: selectedAvatar?.url || '',
       avatarName: selectedAvatar?.name || '',
@@ -640,7 +649,7 @@ function ProfileEditorModal({ member, onClose, onUpdate }: { member: Member; onC
       <div className="modal wide" onClick={e => e.stopPropagation()}>
         <button className="modal-close" onClick={onClose}>×</button>
         <div className="modal-title">Your Profile</div>
-        <p className="modal-subtitle">Founding Member #{member.memberNumber}</p>
+        <p className="modal-subtitle">{numberLabel ?? `Founding Member #${member.memberNumber}`}</p>
 
         <div style={{ display: 'flex', gap: '2rem' }}>
           <div style={{ flex: 1, maxHeight: '60vh', overflowY: 'auto', paddingRight: '8px' }}>
@@ -1110,7 +1119,13 @@ const U_FILL_ORDER = U_POSITIONS
 
 type EnrichedMember = Member & { displayTitle: string };
 
-function Seat({ member, isMain, onClick }: { member: EnrichedMember | null; isMain?: boolean; onClick: (m: EnrichedMember) => void }) {
+function Seat({ member, isMain, onClick, selected, editing }: {
+  member: EnrichedMember | null;
+  isMain?: boolean;
+  onClick: (m: EnrichedMember) => void;
+  selected?: boolean;
+  editing?: boolean;
+}) {
   if (!member) {
     return (
       <div className={`seat vacant ${isMain ? 'main' : ''}`}>
@@ -1119,11 +1134,18 @@ function Seat({ member, isMain, onClick }: { member: EnrichedMember | null; isMa
       </div>
     );
   }
+  const bestie = member.bestieColor;
   return (
-    <button className={`seat filled ${isMain ? 'main' : ''}`} onClick={() => onClick(member)} title={`${member.fullName} — view dossier`}>
+    <button
+      className={`seat filled ${isMain ? 'main' : ''} ${selected ? 'selected' : ''} ${editing ? 'editing' : ''} ${bestie ? 'has-bestie' : ''}`}
+      onClick={() => onClick(member)}
+      title={editing ? `Select ${member.firstName}` : `${member.fullName} — view dossier`}
+      style={bestie ? ({ ['--bestie' as any]: bestie }) : undefined}
+    >
       {member.avatar
         ? <img src={member.avatar} className="seat-avatar" alt={member.firstName} />
         : <div className="seat-avatar placeholder">◆</div>}
+      {bestie && <span className="bestie-badge" style={{ background: bestie }}>♥ bestie</span>}
       <div className="seat-label">
         {isMain && '★ '}<span className="seat-name">{member.firstName}</span>
         <span className="seat-grade">{isMain ? 'Head of Council' : member.grade}</span>
@@ -1132,20 +1154,75 @@ function Seat({ member, isMain, onClick }: { member: EnrichedMember | null; isMa
   );
 }
 
-function HallOfFounders({ members, onSeatClick }: { members: EnrichedMember[]; onSeatClick: (m: EnrichedMember) => void }) {
+function HallOfFounders({ members, onSeatClick, isAdmin }: { members: EnrichedMember[]; onSeatClick: (m: EnrichedMember) => void; isAdmin: boolean }) {
   const { ref } = useInView(0.1);
   const complete = members.length >= MAX;
   const mains = members.filter(m => m.isMainFounder);
   const others = members.filter(m => !m.isMainFounder);
   const remaining = MAX - members.length;
 
+  const [editMode, setEditMode] = useState<'none' | 'arrange' | 'bestie'>('none');
+  const [selected, setSelected] = useState<string[]>([]);
+
+  // Leave edit mode if admin logs out.
+  useEffect(() => { if (!isAdmin) { setEditMode('none'); setSelected([]); } }, [isAdmin]);
+
   // One head seat if no main founder yet; otherwise every main founder, side by side.
   const headSeats: (EnrichedMember | null)[] = mains.length > 0 ? mains : [null];
   const headSpacing = 17; // % between adjacent heads
 
-  // Seat each member into a balanced slot so the council fills symmetrically.
+  // Seat each member into a slot. Explicit `seat` (set by the admin) wins;
+  // everyone else fills the remaining slots via the balanced fill order.
   const slotMembers: (EnrichedMember | null)[] = new Array(U_POSITIONS.length).fill(null);
-  others.forEach((m, i) => { if (i < U_FILL_ORDER.length) slotMembers[U_FILL_ORDER[i]] = m; });
+  const overflow: EnrichedMember[] = [];
+  others.forEach((m) => {
+    const s = m.seat;
+    if (typeof s === 'number' && s >= 0 && s < U_POSITIONS.length && slotMembers[s] == null) slotMembers[s] = m;
+    else overflow.push(m);
+  });
+  let oi = 0;
+  for (const slot of U_FILL_ORDER) {
+    if (oi >= overflow.length) break;
+    if (slotMembers[slot] == null) slotMembers[slot] = overflow[oi++];
+  }
+  const memberSlot = new Map<string, number>();
+  slotMembers.forEach((m, i) => { if (m) memberSlot.set(m.id, i); });
+
+  const handleSeatClick = (m: EnrichedMember) => {
+    if (editMode === 'none' || !isAdmin) { onSeatClick(m); return; }
+    setSelected(prev => {
+      if (prev.includes(m.id)) return prev.filter(x => x !== m.id);
+      const next = [...prev, m.id];
+      return next.length > 2 ? next.slice(next.length - 2) : next;
+    });
+  };
+
+  // Arrange mode: as soon as two are selected, swap their seats (smooth glide).
+  useEffect(() => {
+    if (editMode !== 'arrange' || selected.length !== 2) return;
+    const [aId, bId] = selected;
+    const sa = memberSlot.get(aId);
+    const sb = memberSlot.get(bId);
+    if (sa !== undefined && sb !== undefined) swapMemberSeats(aId, sb, bId, sa);
+    setSelected([]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected, editMode]);
+
+  const pairAreBesties = selected.length === 2 &&
+    members.find(m => m.id === selected[0])?.bestieWith === selected[1];
+
+  const makeBesties = async () => {
+    if (selected.length !== 2) return;
+    await setBesties(selected[0], selected[1], nextBestieColor(members));
+    setSelected([]);
+  };
+  const unpair = async () => {
+    if (selected.length !== 2) return;
+    await clearBesties(selected[0], selected[1]);
+    setSelected([]);
+  };
+
+  const editing = editMode !== 'none';
 
   return (
     <section className="hall" id="hall" ref={ref}>
@@ -1155,7 +1232,30 @@ function HallOfFounders({ members, onSeatClick }: { members: EnrichedMember[]; o
         <p className="hall-subtitle">"These students chose to lead before the room was full."</p>
         <div className="hall-divider" />
 
-        <div className={`hall-chamber ${complete ? 'complete' : ''}`}>
+        {isAdmin && (
+          <div className="council-admin">
+            <button className={`council-tool ${editMode === 'arrange' ? 'active' : ''}`}
+              onClick={() => { setEditMode(editMode === 'arrange' ? 'none' : 'arrange'); setSelected([]); }}>
+              ↔ Arrange Seats
+            </button>
+            <button className={`council-tool ${editMode === 'bestie' ? 'active' : ''}`}
+              onClick={() => { setEditMode(editMode === 'bestie' ? 'none' : 'bestie'); setSelected([]); }}>
+              ♥ Besties
+            </button>
+            {editMode === 'arrange' && <span className="council-hint">Tap two founders to swap their seats.</span>}
+            {editMode === 'bestie' && (
+              <span className="council-hint">
+                {selected.length < 2 ? 'Tap two founders to pair them.' : (
+                  pairAreBesties
+                    ? <button className="council-go danger" onClick={unpair}>Unpair</button>
+                    : <button className="council-go" onClick={makeBesties}>Make Besties ♥</button>
+                )}
+              </span>
+            )}
+          </div>
+        )}
+
+        <div className={`hall-chamber ${complete ? 'complete' : ''} ${editing ? 'editing' : ''}`}>
           <div className="chamber-floor" />
           <div className="chamber-emblem">◆<span>The Council</span></div>
 
@@ -1164,17 +1264,31 @@ function HallOfFounders({ members, onSeatClick }: { members: EnrichedMember[]; o
             const x = 50 + (i - (headSeats.length - 1) / 2) * headSpacing;
             return (
               <div className="seat-wrap is-main" key={m ? m.id : 'head-vacant'} style={{ left: `${x}%`, top: '8%' }}>
-                <Seat member={m} isMain onClick={onSeatClick} />
+                <Seat member={m} isMain onClick={handleSeatClick} selected={!!m && selected.includes(m.id)} editing={editing} />
               </div>
             );
           })}
 
-          {/* Perimeter seats around the horseshoe */}
+          {/* Vacant slot markers (static) */}
           {U_POSITIONS.map((p, i) => (
-            <div className="seat-wrap" key={i} style={{ left: `${p.x}%`, top: `${p.y}%` }}>
-              <Seat member={slotMembers[i]} onClick={onSeatClick} />
-            </div>
+            slotMembers[i] ? null : (
+              <div className="seat-wrap" key={`slot-${i}`} style={{ left: `${p.x}%`, top: `${p.y}%` }}>
+                <Seat member={null} onClick={handleSeatClick} />
+              </div>
+            )
           ))}
+
+          {/* Filled members — positioned by slot; they glide when their slot changes */}
+          {others.map((m) => {
+            const slot = memberSlot.get(m.id);
+            if (slot === undefined) return null;
+            const p = U_POSITIONS[slot];
+            return (
+              <div className="seat-wrap seat-movable" key={m.id} style={{ left: `${p.x}%`, top: `${p.y}%` }}>
+                <Seat member={m} onClick={handleSeatClick} selected={selected.includes(m.id)} editing={editing} />
+              </div>
+            );
+          })}
         </div>
 
         {complete
@@ -1338,6 +1452,9 @@ function useHeroParallax(active: boolean) {
     const loop = () => {
       tx += (mx - tx) * 0.06;
       ty += (my - ty) * 0.06;
+      // .hero-bg already rests at scale(1.07) in CSS, so the parallax engages
+      // seamlessly: this first frame (offsets at 0) equals the resting transform —
+      // no scale pop, no ramp. Offsets then ease from 0 as the mouse moves.
       if (bg) bg.style.transform = `scale(1.07) translate(${tx * -26}px, ${ty * -26}px)`;
       if (emblem) emblem.style.transform = `translate(calc(-50% + ${tx * 36}px), calc(-50% + ${ty * 32}px))`;
       raf = requestAnimationFrame(loop);
@@ -1351,6 +1468,203 @@ function useHeroParallax(active: boolean) {
       if (emblem) emblem.style.transform = '';
     };
   }, [active]);
+}
+
+/* ─── Founding Delegates (unlimited tier) ─── */
+function DelegateAvatar({ d, i }: { d: Delegate; i: number }) {
+  if (d.avatar) return <img src={d.avatar} className="delegate-avatar" alt={d.firstName} />;
+  const hue = 205 + (i * 17) % 38;
+  return (
+    <div
+      className="delegate-avatar mono"
+      style={{ background: `linear-gradient(155deg, hsl(${hue} 52% 32%), hsl(${hue} 58% 17%))` }}
+    >
+      {(d.firstName || d.fullName || '?').charAt(0).toUpperCase()}
+    </div>
+  );
+}
+
+function DelegationSection({ delegates, onJoin, onSelect }: {
+  delegates: Delegate[];
+  onJoin: () => void;
+  onSelect: (d: Delegate) => void;
+}) {
+  const { ref } = useInView(0.1);
+  return (
+    <section className="delegation" id="delegation" ref={ref}>
+      <div className="delegation-inner">
+        <div className="section-eyebrow">The Delegation</div>
+        <h2 className="section-title">Founding <span className="gold-accent">Delegates</span></h2>
+        <p className="delegation-subtitle">
+          The council seats fifteen. The cause belongs to everyone who answers it. Founding Delegates stand on the record beside the founders, without limit.
+        </p>
+        <div className="delegation-count">
+          <span className="delegation-count-num">{delegates.length}</span>
+          {delegates.length === 1 ? 'delegate has joined' : 'delegates have joined'}
+        </div>
+
+        {delegates.length > 0 ? (
+          <div className="delegate-grid">
+            {delegates.map((d, i) => (
+              <button className="delegate-card" key={d.id} onClick={() => onSelect(d)} title={`${d.fullName} — view`}>
+                <DelegateAvatar d={d} i={i} />
+                <div className="delegate-name">{d.firstName}</div>
+                <div className="delegate-meta">{d.grade} · {d.classGroup}</div>
+              </button>
+            ))}
+          </div>
+        ) : (
+          <div className="delegation-empty">No delegates yet. Be the first to stand on the founding record.</div>
+        )}
+
+        <div className="delegation-cta-wrap">
+          <MagneticCta onClick={onJoin}>Become a Founding Delegate →</MagneticCta>
+          <p className="cta-sub">Unlimited places. Your name is recorded permanently.</p>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function DelegateModal({ onClose, onSuccess, preAuth }: {
+  onClose: () => void;
+  onSuccess: (d: Delegate) => void;
+  preAuth: GoogleUser | null;
+}) {
+  const [step, setStep] = useState<'auth' | 'form' | 'welcome'>('auth');
+  const [authUser, setAuthUser] = useState<{ name: string; email: string } | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [fullName, setFullName] = useState('');
+  const [grade, setGrade] = useState('');
+  const [classGroup, setClassGroup] = useState('');
+  const [bio, setBio] = useState('');
+  const [created, setCreated] = useState<Delegate | null>(null);
+
+  const applyUser = useCallback((user: { name: string; email: string }) => {
+    setAuthUser({ name: user.name, email: user.email });
+    setFullName(prev => prev || user.name);
+    const existing = isDelegateByEmail(user.email);
+    if (existing) { setCreated(existing); setStep('welcome'); }
+    else setStep('form');
+  }, []);
+
+  useEffect(() => { if (preAuth) applyUser(preAuth); }, [preAuth, applyUser]);
+
+  const handleGoogleAuth = async () => {
+    setLoading(true); setError(null);
+    try { applyUser(await signInWithGoogle()); }
+    catch (err) { setError(err instanceof Error ? err.message : 'Authentication failed. Please try again.'); }
+    finally { setLoading(false); }
+  };
+
+  const handleSubmit = async () => {
+    if (!fullName || !grade || !classGroup || !authUser) return;
+    setLoading(true);
+    const d = await addDelegate({
+      fullName,
+      firstName: fullName.split(' ')[0],
+      grade, classGroup, bio,
+      email: authUser.email,
+    });
+    setLoading(false);
+    if (d) {
+      setCreated(d);
+      setStep('welcome');
+      onSuccess(d);
+      confetti({ particleCount: 120, spread: 80, origin: { y: 0.5 }, colors: CONFETTI_BLUES });
+    }
+  };
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" onClick={e => e.stopPropagation()}>
+        <button className="modal-close" onClick={onClose}>×</button>
+
+        {step === 'auth' && (
+          <>
+            <div className="modal-title">Join the Delegation</div>
+            <p className="modal-subtitle">Sign in with Google to add your name to the Founding Delegates.</p>
+            <button className="google-btn" onClick={handleGoogleAuth} disabled={loading}>
+              {loading ? <span>Verifying...</span> : (<><GoogleIcon /><span>Continue with Google</span></>)}
+            </button>
+            {error && <p style={{ color: 'var(--signal)', fontSize: '0.85rem', marginTop: '1rem', textAlign: 'center' }}>{error}</p>}
+          </>
+        )}
+
+        {step === 'form' && (
+          <>
+            <div className="modal-title">Become a Founding Delegate</div>
+            <p className="modal-subtitle">No seat limit. Your name joins the founding record permanently.</p>
+
+            <div className="form-group">
+              <label className="form-label">Full Name</label>
+              <input className="form-input" value={fullName} onChange={e => setFullName(e.target.value)} placeholder="Your full name" />
+            </div>
+            <div className="form-group">
+              <label className="form-label">Grade</label>
+              <select className="form-select" value={grade} onChange={e => setGrade(e.target.value)}>
+                <option value="">Select grade</option>
+                {['9th', 'S1', 'S2', 'S3', 'S4', 'S5', 'S6'].map(g => (<option key={g} value={g}>{g}</option>))}
+              </select>
+            </div>
+            <div className="form-group">
+              <label className="form-label">Class</label>
+              <input className="form-input" value={classGroup} onChange={e => setClassGroup(e.target.value)} placeholder="e.g. S1-1, 904" />
+            </div>
+            <div className="form-group">
+              <label className="form-label">Biography / Quote <span style={{ color: 'var(--silver-mute)', textTransform: 'none', letterSpacing: 0 }}>(optional)</span></label>
+              <textarea className="form-textarea" value={bio} onChange={e => setBio(e.target.value)} placeholder="A line about why you're here." maxLength={150} />
+            </div>
+
+            <button className="submit-btn" onClick={handleSubmit} disabled={!fullName || !grade || !classGroup || loading}>
+              {loading ? 'Adding...' : 'Add My Name'}
+            </button>
+          </>
+        )}
+
+        {step === 'welcome' && created && (
+          <div className="welcome-back">
+            <div className="modal-title">Welcome, {created.firstName}.</div>
+            <p className="modal-subtitle">You are Founding Delegate #{created.delegateNumber}. Your name now stands on the record.</p>
+            <div className="wb-badge">◆ Founding Delegate</div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function DelegateDetailModal({ delegate, onClose, isAdmin, onAdminEdit, onDelete }: {
+  delegate: Delegate;
+  onClose: () => void;
+  isAdmin: boolean;
+  onAdminEdit: (d: Delegate) => void;
+  onDelete: (id: string, name: string) => void;
+}) {
+  return (
+    <div className="detail-overlay" onClick={onClose}>
+      <div className="detail-card" onClick={e => e.stopPropagation()} style={{ textAlign: 'center' }}>
+        <button className="modal-close" onClick={onClose}>×</button>
+        {delegate.avatar
+          ? <img src={delegate.avatar} className="detail-avatar" alt={delegate.firstName} style={{ margin: '0 auto 1rem', display: 'block' }} />
+          : <div className="detail-avatar-placeholder" style={{ margin: '0 auto 1rem' }}>{(delegate.firstName || '?').charAt(0).toUpperCase()}</div>}
+        <div className="detail-name">{delegate.fullName}</div>
+        <div className="detail-meta">Grade {delegate.grade} · Class {delegate.classGroup}</div>
+        <div className="detail-badge">◆ Founding Delegate #{delegate.delegateNumber}</div>
+        {delegate.bio && <div className="detail-bio">"{delegate.bio}"</div>}
+        {isAdmin && (
+          <div className="admin-panel">
+            <div className="admin-panel-label">◆ Administrator Controls</div>
+            <div className="admin-panel-actions">
+              <button className="admin-act" onClick={() => onAdminEdit(delegate)}>Edit Photo &amp; Quote</button>
+              <button className="admin-act danger" onClick={() => onDelete(delegate.id, delegate.fullName)}>Remove Delegate</button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }
 
 /* ─── Main App ─── */
@@ -1370,10 +1684,19 @@ export default function App() {
   const [googleUser, setGoogleUser] = useState<GoogleUser | null>(getCachedGoogleUser());
   const [adminEditMember, setAdminEditMember] = useState<Member | null>(null);
 
+  /* Founding Delegates (unlimited tier) */
+  const [delegates, setDelegates] = useState<Delegate[]>(getDelegates());
+  const [loggedInDelegate, setLoggedInDelegate] = useState<Delegate | null>(null);
+  const [delegateModalOpen, setDelegateModalOpen] = useState(false);
+  const [delegateProfileOpen, setDelegateProfileOpen] = useState(false);
+  const [selectedDelegate, setSelectedDelegate] = useState<Delegate | null>(null);
+  const [adminEditDelegate, setAdminEditDelegate] = useState<Delegate | null>(null);
+
   const isAdmin = isAdminEmail(adminEmail);
   const count = members.length;
   const urgent = count >= 13 && count < MAX;
   const full = count >= MAX;
+  const loggedInPerson = loggedInUser || loggedInDelegate;
 
   let regularCount = 0;
   const enrichedMembers = members.map(m => {
@@ -1398,6 +1721,14 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
+  useEffect(() => {
+    const unsubscribe = subscribeToDelegates((newDelegates) => {
+      setDelegates([...newDelegates]);
+      setLoggedInDelegate(prev => prev ? newDelegates.find(d => d.email === prev.email) || null : null);
+    });
+    return () => unsubscribe();
+  }, []);
+
   const refresh = useCallback(() => {}, []);
 
   const [authMode, setAuthMode] = useState<null | 'login' | 'claim' | 'admin'>(null);
@@ -1407,11 +1738,14 @@ export default function App() {
     setGoogleUser(user);
     if (isAdminEmail(user.email)) setAdminEmail(user.email);
     const member = isMemberByEmail(user.email);
+    const delegate = isDelegateByEmail(user.email);
     if (member) setLoggedInUser(member);
+    if (delegate) setLoggedInDelegate(delegate);
     setAuthMode(null);
     if (mode === 'login') {
       if (member) setProfileModalOpen(true);
-      else if (!isAdminEmail(user.email)) alert("You haven't claimed a Founding Seat yet. Please register first.");
+      else if (delegate) setDelegateProfileOpen(true);
+      else if (!isAdminEmail(user.email)) alert("You haven't joined yet. Claim a Founding Seat or become a Founding Delegate first.");
     } else if (mode === 'claim') {
       setModalOpen(true);
     } else if (mode === 'admin') {
@@ -1422,13 +1756,23 @@ export default function App() {
   /* Single entry point. Reuses an existing session; otherwise opens the sign-in modal. */
   const startAuth = (mode: 'login' | 'claim' | 'admin') => {
     if (mode === 'login' && loggedInUser) { setProfileModalOpen(true); return; }
+    if (mode === 'login' && loggedInDelegate) { setDelegateProfileOpen(true); return; }
     const existing = googleUser || getCachedGoogleUser();
     if (existing) { proceedWithUser(existing, mode); return; }
     setAuthMode(mode);
   };
 
   const handleDeleteMember = async (id: string, name: string) => {
-    if (confirm(`Remove ${name} from the Founding Members? This cannot be undone.`)) await removeMember(id);
+    if (confirm(`Remove ${name} from the Founding Members? This cannot be undone.`)) {
+      await removeMember(id);
+      // If a delegate is waiting, the longest-waiting one fills the freed seat so
+      // the council stays at 15. If none are waiting, the seat opens for new founders.
+      await promoteEarliestDelegate();
+    }
+  };
+
+  const handleDeleteDelegate = async (id: string, name: string) => {
+    if (confirm(`Remove ${name} from the Founding Delegates? This cannot be undone.`)) await removeDelegate(id);
   };
 
   const handleSuccess = (m: Member) => {
@@ -1451,11 +1795,11 @@ export default function App() {
       {menuOpen && <SideMenu onClose={() => setMenuOpen(false)} />}
 
       {/* User Profile / Login Button */}
-      <button className={`user-login-btn ${loggedInUser ? 'logged-in' : ''}`} onClick={() => startAuth('login')}>
-        {loggedInUser ? (
+      <button className={`user-login-btn ${loggedInPerson ? 'logged-in' : ''}`} onClick={() => startAuth('login')}>
+        {loggedInPerson ? (
           <>
-            {loggedInUser.avatar ? (
-              <img src={loggedInUser.avatar} className="user-avatar-small" alt={loggedInUser.firstName} />
+            {loggedInPerson.avatar ? (
+              <img src={loggedInPerson.avatar} className="user-avatar-small" alt={loggedInPerson.firstName} />
             ) : (
               <div className="user-avatar-small" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '10px', color: 'var(--ice)' }}>◆</div>
             )}
@@ -1554,7 +1898,24 @@ export default function App() {
                 Welcome back, {loggedInUser.firstName} — you are Founding Member #{loggedInUser.memberNumber}.
               </p>
             </div>
-          ) : !full ? (
+          ) : loggedInDelegate ? (
+            <div
+              style={{
+                opacity: loaded ? 1 : 0,
+                transform: loaded ? 'translateY(0)' : 'translateY(20px)',
+                transition: 'opacity 0.8s ease 0.85s, transform 0.8s cubic-bezier(0.16, 1, 0.3, 1) 0.85s'
+              }}
+            >
+              <MagneticCta onClick={() => scrollToId('delegation')}>◆ See the Delegation →</MagneticCta>
+              <p className="cta-sub" style={{
+                opacity: loaded ? 1 : 0,
+                transform: loaded ? 'translateY(0)' : 'translateY(10px)',
+                transition: 'opacity 0.8s ease 0.95s, transform 0.8s cubic-bezier(0.16, 1, 0.3, 1) 0.95s'
+              }}>
+                Welcome back, {loggedInDelegate.firstName} — Founding Delegate #{loggedInDelegate.delegateNumber}.
+              </p>
+            </div>
+          ) : (!full && delegates.length === 0) ? (
             <div
               style={{
                 opacity: loaded ? 1 : 0,
@@ -1570,17 +1931,21 @@ export default function App() {
               }}>Takes 60 seconds. Lasts on your college application forever.</p>
             </div>
           ) : (
-            <p style={{
-              color: 'var(--azure-bright)',
-              fontFamily: "'Cormorant Garamond', serif",
-              fontSize: '1.4rem',
-              marginTop: '1rem',
-              opacity: loaded ? 1 : 0,
-              transform: loaded ? 'translateY(0)' : 'translateY(20px)',
-              transition: 'opacity 0.8s ease 0.85s, transform 0.8s cubic-bezier(0.16, 1, 0.3, 1) 0.85s'
-            }}>
-              ◆ The Chamber Is Sealed ◆
-            </p>
+            <div
+              style={{
+                opacity: loaded ? 1 : 0,
+                transform: loaded ? 'translateY(0)' : 'translateY(20px)',
+                transition: 'opacity 0.8s ease 0.85s, transform 0.8s cubic-bezier(0.16, 1, 0.3, 1) 0.85s'
+              }}
+            >
+              {full && <p className="hero-sealed-note">◆ All 15 Founding Seats Are Sealed</p>}
+              <MagneticCta onClick={() => setDelegateModalOpen(true)}>Become a Founding Delegate →</MagneticCta>
+              <p className="cta-sub" style={{
+                opacity: loaded ? 1 : 0,
+                transform: loaded ? 'translateY(0)' : 'translateY(10px)',
+                transition: 'opacity 0.8s ease 0.95s, transform 0.8s cubic-bezier(0.16, 1, 0.3, 1) 0.95s'
+              }}>Unlimited places. Your name still stands on the founding record.</p>
+            </div>
           )}
         </div>
 
@@ -1600,6 +1965,14 @@ export default function App() {
       <HallOfFounders
         members={enrichedMembers}
         onSeatClick={(m) => setSelectedFounder(m)}
+        isAdmin={isAdmin}
+      />
+
+      {/* ③½ Founding Delegates */}
+      <DelegationSection
+        delegates={delegates}
+        onJoin={() => setDelegateModalOpen(true)}
+        onSelect={(d) => setSelectedDelegate(d)}
       />
 
       {/* ④ About MUN */}
@@ -1649,6 +2022,41 @@ export default function App() {
         />
       )}
       {certificate && <Certificate member={certificate} onClose={() => setCertificate(null)} />}
+
+      {delegateModalOpen && (
+        <DelegateModal
+          onClose={() => setDelegateModalOpen(false)}
+          onSuccess={(d) => setLoggedInDelegate(d)}
+          preAuth={googleUser}
+        />
+      )}
+      {delegateProfileOpen && loggedInDelegate && (
+        <ProfileEditorModal
+          member={loggedInDelegate as unknown as Member}
+          numberLabel={`Founding Delegate #${loggedInDelegate.delegateNumber}`}
+          saveFn={updateDelegate}
+          onClose={() => setDelegateProfileOpen(false)}
+          onUpdate={refresh}
+        />
+      )}
+      {adminEditDelegate && (
+        <ProfileEditorModal
+          member={adminEditDelegate as unknown as Member}
+          numberLabel={`Founding Delegate #${adminEditDelegate.delegateNumber}`}
+          saveFn={updateDelegate}
+          onClose={() => setAdminEditDelegate(null)}
+          onUpdate={refresh}
+        />
+      )}
+      {selectedDelegate && (
+        <DelegateDetailModal
+          delegate={selectedDelegate}
+          onClose={() => setSelectedDelegate(null)}
+          isAdmin={isAdmin}
+          onAdminEdit={(d) => { setSelectedDelegate(null); setAdminEditDelegate(d); }}
+          onDelete={async (id, name) => { await handleDeleteDelegate(id, name); setSelectedDelegate(null); }}
+        />
+      )}
 
       {sealedShown && full && (
         <div className="sealed-overlay" onClick={() => setSealedShown(false)}>

@@ -475,6 +475,8 @@ body.intro-active .intro-scan {
   background-repeat: no-repeat;
   background-position: center 28%;
   background-size: cover, cover, cover;
+  /* Rest at the same scale the parallax uses so it engages with no pop. */
+  transform: scale(1.07);
   will-change: transform;
 }
 /* Blue duotone wash + cinematic vignette over the photo */
@@ -516,14 +518,17 @@ body.intro-active .intro-scan {
   opacity: 0.95;                                  /* intro: bright */
   transform: scale(0.66);                         /* intro: small */
   transform-origin: 50% 50%;
-  filter: drop-shadow(0 0 22px rgba(132,182,255,0.5));
+  /* Two-shadow filter (matches the .alive + glow keyframes) so the settle
+     transition interpolates smoothly instead of snapping between shadow counts. */
+  filter: drop-shadow(0 0 22px rgba(132,182,255,0.5)) drop-shadow(0 0 40px rgba(47,99,214,0.2));
   transition: opacity 1.9s ease, transform 2s cubic-bezier(0.22,1,0.3,1), filter 1.9s ease;
   will-change: transform, opacity, filter;
 }
 .emblem-img.alive {                               /* settled: grows bigger + fades into the background */
   opacity: 0.55;
   transform: scale(1);
-  filter: drop-shadow(0 0 16px rgba(76,141,255,0.3));
+  /* Equals the emblemGlow 0% keyframe, so when the glow animation starts there is no jump. */
+  filter: drop-shadow(0 0 14px rgba(76,141,255,0.45)) drop-shadow(0 0 40px rgba(47,99,214,0.35));
   animation: emblemBreath 7.5s ease-in-out 2.3s infinite, emblemGlow 5s ease-in-out 2.3s infinite;
 }
 @keyframes emblemBreath {
@@ -1043,6 +1048,104 @@ body.intro-active .intro-scan {
   animation: fadeIn 1s ease;
 }
 
+/* ─── Council editor (admin) ─── */
+.council-admin {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin: -1rem auto 2rem;
+  min-height: 34px;
+}
+.council-tool {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border-radius: 999px;
+  background: rgba(76,141,255,0.08);
+  border: 1px solid rgba(76,141,255,0.30);
+  color: var(--azure-bright);
+  font-family: 'Epilogue', sans-serif;
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.25s ease, border-color 0.25s ease, color 0.25s ease;
+}
+.council-tool:hover { background: rgba(76,141,255,0.16); }
+.council-tool.active { background: var(--azure); color: #fff; border-color: var(--azure-bright); }
+.council-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.74rem;
+  color: var(--silver-dim);
+  letter-spacing: 0.02em;
+}
+.council-go {
+  padding: 6px 15px;
+  border-radius: 999px;
+  border: 1px solid var(--azure-bright);
+  background: var(--azure);
+  color: #fff;
+  font-family: 'Epilogue', sans-serif;
+  font-weight: 700;
+  font-size: 0.68rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+.council-go:hover { transform: translateY(-1px); box-shadow: 0 8px 20px rgba(76,141,255,0.4); }
+.council-go.danger { background: rgba(255,90,95,0.15); border-color: var(--signal); color: #ff8a8e; }
+
+/* Seats glide to their new position when the admin swaps them */
+.seat-wrap.seat-movable {
+  transition: left 0.7s cubic-bezier(0.22, 1, 0.3, 1), top 0.7s cubic-bezier(0.22, 1, 0.3, 1);
+  z-index: 2;
+}
+.seat { position: relative; }
+.hall-chamber.editing .seat.filled { cursor: pointer; }
+
+/* Selected-for-edit */
+.seat.selected { z-index: 12; }
+.seat.selected .seat-avatar {
+  border-color: var(--azure-bright);
+  outline: 2px solid var(--azure-bright);
+  outline-offset: 3px;
+  box-shadow: 0 0 24px rgba(132,182,255,0.75) !important;
+  transform: translateY(-4px) scale(1.1);
+}
+
+/* Bestie pairing — shared glow + badge */
+.seat.has-bestie { z-index: 6; }
+.seat.has-bestie .seat-avatar {
+  border-color: var(--bestie, var(--azure-bright));
+  box-shadow: 0 0 0 2px var(--bestie, var(--azure-bright)), 0 0 18px var(--bestie, var(--azure-bright));
+}
+.bestie-badge {
+  position: absolute;
+  top: -7px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 0.5rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #1a1024;
+  padding: 2px 8px;
+  border-radius: 999px;
+  white-space: nowrap;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.45);
+  pointer-events: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .seat-wrap.seat-movable { transition: none; }
+}
+
 /* Admin panel inside detail modal */
 .admin-panel {
   margin-top: 1.5rem;
@@ -1304,6 +1407,111 @@ body.intro-active .intro-scan {
 
 /* Admin pill */
 .admin-toggle { position: fixed; top: 26px; left: 50%; transform: translateX(-50%); z-index: 0; }
+
+/* ═══════════════════════════════════════════
+   FOUNDING DELEGATES (unlimited tier)
+═══════════════════════════════════════════ */
+.delegation { padding: 8rem 1.5rem; position: relative; }
+.delegation-inner { max-width: 1040px; margin: 0 auto; text-align: center; }
+.delegation-subtitle {
+  font-size: clamp(0.98rem, 2vw, 1.12rem);
+  color: var(--silver);
+  max-width: 60ch;
+  margin: 0 auto 1.5rem;
+  line-height: 1.7;
+  font-style: italic;
+}
+.delegation-count {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  color: var(--silver-dim);
+  margin-bottom: 3rem;
+}
+.delegation-count-num {
+  font-family: 'Cormorant Garamond', serif;
+  font-style: normal;
+  font-size: 1.5rem;
+  color: var(--azure-bright);
+  font-weight: 600;
+  margin-right: 0.45rem;
+  letter-spacing: 0;
+}
+.delegate-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
+  gap: 1.25rem;
+  margin-bottom: 3.5rem;
+}
+.delegate-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 1.7rem 1rem;
+  background: linear-gradient(160deg, rgba(19,32,63,0.5), rgba(10,17,36,0.45));
+  border: 1px solid rgba(76,141,255,0.10);
+  border-top: 1px solid rgba(132,182,255,0.32);
+  border-radius: 10px;
+  cursor: pointer;
+  font-family: inherit;
+  color: inherit;
+  transition: transform 0.35s cubic-bezier(0.16,1,0.3,1), border-color 0.35s ease, box-shadow 0.35s ease;
+}
+.delegate-card:hover {
+  transform: translateY(-4px);
+  border-top-color: var(--azure-bright);
+  box-shadow: 0 18px 44px rgba(76,141,255,0.16);
+}
+.delegate-avatar {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 2px solid rgba(76,141,255,0.4);
+}
+.delegate-avatar.mono {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 1.7rem;
+  font-weight: 600;
+  color: var(--ice);
+}
+.delegate-name {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--platinum);
+  line-height: 1.1;
+}
+.delegate-meta {
+  font-size: 0.66rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--silver-mute);
+}
+.delegation-empty {
+  color: var(--silver-dim);
+  font-style: italic;
+  font-size: 0.95rem;
+  padding: 2.5rem 0 3rem;
+}
+.delegation-cta-wrap { margin-top: 0.5rem; }
+.hero-sealed-note {
+  font-size: 0.66rem;
+  letter-spacing: 0.3em;
+  text-indent: 0.3em;
+  text-transform: uppercase;
+  color: var(--azure-dim);
+  margin-bottom: 1.1rem;
+}
+@media (max-width: 520px) {
+  .delegate-grid { grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 0.85rem; }
+  .delegate-avatar { width: 54px; height: 54px; }
+  .delegate-avatar.mono { font-size: 1.4rem; }
+}
 
 /* ═══════════════════════════════════════════
    REDUCED MOTION
