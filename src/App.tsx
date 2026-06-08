@@ -143,6 +143,30 @@ function ProgressRing({ count }: { count: number }) {
   );
 }
 
+/* ─── Delegate Ring (open / unlimited — never "full") ─── */
+function DelegateRing({ count }: { count: number }) {
+  const r = 88;
+  const circ = 2 * Math.PI * r;
+  return (
+    <div className="ring-container delegate-ring">
+      <svg viewBox="0 0 210 210">
+        <defs>
+          <linearGradient id="delRingGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stopColor="#84b6ff" />
+            <stop offset="100%" stopColor="#c4dbff" />
+          </linearGradient>
+        </defs>
+        <circle cx="105" cy="105" r={r} className="ring-bg" />
+        <circle cx="105" cy="105" r={r} className="ring-open" strokeDasharray={`${circ * 0.16} ${circ * 0.09}`} />
+      </svg>
+      <div className="ring-text">
+        <span className="ring-number">{count}</span>
+        <span className="ring-label">delegates</span>
+      </div>
+    </div>
+  );
+}
+
 /* ─── Loading Screen ─── */
 function LoadingScreen({ onReveal, onDone }: { onReveal: () => void; onDone: () => void }) {
   const [gone, setGone] = useState(false);
@@ -1896,7 +1920,20 @@ export default function App() {
               transition: 'opacity 0.8s ease 0.75s, transform 0.8s cubic-bezier(0.16, 1, 0.3, 1) 0.75s'
             }}
           >
-            <ProgressRing count={count} />
+            {full ? (
+              <div className="hero-stats">
+                <div className="hero-stat">
+                  <ProgressRing count={count} />
+                  <div className="hero-stat-cap">◆ Council · Sealed</div>
+                </div>
+                <div className="hero-stat">
+                  <DelegateRing count={delegates.length} />
+                  <div className="hero-stat-cap open"><span className="cap-dot" /> Delegates · Open</div>
+                </div>
+              </div>
+            ) : (
+              <ProgressRing count={count} />
+            )}
           </div>
 
           {loggedInUser ? (
