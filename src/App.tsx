@@ -1492,10 +1492,13 @@ function DelegateAvatar({ d, i }: { d: Delegate; i: number }) {
   );
 }
 
-function DelegationSection({ delegates, onJoin, onSelect }: {
+function DelegationSection({ delegates, onJoin, onSelect, loggedInDelegate, isFounder, onEditProfile }: {
   delegates: Delegate[];
   onJoin: () => void;
   onSelect: (d: Delegate) => void;
+  loggedInDelegate: Delegate | null;
+  isFounder: boolean;
+  onEditProfile: () => void;
 }) {
   const { ref } = useInView(0.1);
   return (
@@ -1526,8 +1529,21 @@ function DelegationSection({ delegates, onJoin, onSelect }: {
         )}
 
         <div className="delegation-cta-wrap">
-          <MagneticCta onClick={onJoin}>Become a Founding Delegate →</MagneticCta>
-          <p className="cta-sub">Unlimited places. Your name is recorded permanently.</p>
+          {loggedInDelegate ? (
+            <>
+              <MagneticCta onClick={onEditProfile}>◆ Edit Your Delegate Profile →</MagneticCta>
+              <p className="cta-sub">You're Founding Delegate #{loggedInDelegate.delegateNumber}. Your name stands on the record.</p>
+            </>
+          ) : isFounder ? (
+            <p className="cta-sub" style={{ fontSize: '0.8rem' }}>
+              You're a Founding Member — your seat is in the council above.
+            </p>
+          ) : (
+            <>
+              <MagneticCta onClick={onJoin}>Become a Founding Delegate →</MagneticCta>
+              <p className="cta-sub">Unlimited places. Your name is recorded permanently.</p>
+            </>
+          )}
         </div>
       </div>
     </section>
@@ -2013,7 +2029,10 @@ export default function App() {
       {/* ③½ Founding Delegates */}
       <DelegationSection
         delegates={delegates}
+        loggedInDelegate={loggedInDelegate}
+        isFounder={!!loggedInUser}
         onJoin={() => setDelegateModalOpen(true)}
+        onEditProfile={() => setDelegateProfileOpen(true)}
         onSelect={(d) => setSelectedDelegate(d)}
       />
 
