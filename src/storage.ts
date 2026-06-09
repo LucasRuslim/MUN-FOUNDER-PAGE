@@ -111,11 +111,9 @@ export async function toggleMainFounder(id: string, isMainFounder: boolean): Pro
 }
 
 /* ─── Council editor (admin) ─── */
-export async function swapMemberSeats(idA: string, newSeatA: number, idB: string, newSeatB: number): Promise<void> {
-  await Promise.all([
-    updateDoc(doc(db, 'members', idA), { seat: newSeatA }),
-    updateDoc(doc(db, 'members', idB), { seat: newSeatB }),
-  ]);
+// Persist an explicit perimeter order: seat = position index for each member.
+export async function reorderMembers(orderedIds: string[]): Promise<void> {
+  await Promise.all(orderedIds.map((id, i) => updateDoc(doc(db, 'members', id), { seat: i })));
 }
 
 export async function setBesties(idA: string, idB: string, color: string): Promise<void> {

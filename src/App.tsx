@@ -5,7 +5,7 @@ import confetti from 'canvas-confetti';
 import Lenis from '@studio-freight/lenis';
 import { gsap } from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
-import { getMembers, subscribeToMembers, addMember, isMemberByEmail, removeMember, updateMember, toggleMainFounder, getDelegates, subscribeToDelegates, addDelegate, isDelegateByEmail, updateDelegate, removeDelegate, promoteEarliestDelegate, swapMemberSeats, setBesties, clearBesties, type Member, type Delegate } from './storage';
+import { getMembers, subscribeToMembers, addMember, isMemberByEmail, removeMember, updateMember, toggleMainFounder, getDelegates, subscribeToDelegates, addDelegate, isDelegateByEmail, updateDelegate, removeDelegate, promoteEarliestDelegate, reorderMembers, setBesties, clearBesties, type Member, type Delegate } from './storage';
 import { useInView } from './useInView';
 import { signInWithGoogle, getCachedGoogleUser, renderGoogleButton, type GoogleUser } from './googleAuth';
 
@@ -1142,15 +1142,6 @@ function uSeatPositions(n: number) {
   }
   return pts;
 }
-const U_POSITIONS = uSeatPositions(MAX - 1); // 14 perimeter seats (+1 head = 15)
-
-// Fill order: bottom row first, then outward / up the arms, centred — so the
-// council fills symmetrically and never bunches on one side.
-const U_FILL_ORDER = U_POSITIONS
-  .map((p, idx) => ({ idx, p }))
-  .sort((a, b) => (b.p.y - a.p.y) || (Math.abs(a.p.x - 50) - Math.abs(b.p.x - 50)))
-  .map((o) => o.idx);
-
 type EnrichedMember = Member & { displayTitle: string };
 
 function Seat({ member, isMain, onClick, selected, editing }: {
@@ -1201,26 +1192,16 @@ function HallOfFounders({ members, onSeatClick, isAdmin }: { members: EnrichedMe
   // Leave edit mode if admin logs out.
   useEffect(() => { if (!isAdmin) { setEditMode('none'); setSelected([]); } }, [isAdmin]);
 
-  // One head seat if no main founder yet; otherwise every main founder, side by side.
-  const headSeats: (EnrichedMember | null)[] = mains.length > 0 ? mains : [null];
   const headSpacing = 17; // % between adjacent heads
 
-  // Seat each member into a slot. Explicit `seat` (set by the admin) wins;
-  // everyone else fills the remaining slots via the balanced fill order.
-  const slotMembers: (EnrichedMember | null)[] = new Array(U_POSITIONS.length).fill(null);
-  const overflow: EnrichedMember[] = [];
-  others.forEach((m) => {
-    const s = m.seat;
-    if (typeof s === 'number' && s >= 0 && s < U_POSITIONS.length && slotMembers[s] == null) slotMembers[s] = m;
-    else overflow.push(m);
-  });
-  let oi = 0;
-  for (const slot of U_FILL_ORDER) {
-    if (oi >= overflow.length) break;
-    if (slotMembers[slot] == null) slotMembers[slot] = overflow[oi++];
-  }
-  const memberSlot = new Map<string, number>();
-  slotMembers.forEach((m, i) => { if (m) memberSlot.set(m.id, i); });
+  // Order the non-main members: the admin's explicit `seat` wins, otherwise join order.
+  const byJoin = [...others].sort((a, b) => a.joinedAt.localeCompare(b.joinedAt));
+  const joinIndex = new Map(byJoin.map((m, i) => [m.id, i] as const));
+  const orderKey = (m: EnrichedMember) => (typeof m.seat === 'number' ? m.seat : (joinIndex.get(m.id) ?? 0));
+  const orderedOthers = [...others].sort((a, b) => orderKey(a) - orderKey(b));
+  // The horseshoe sizes itself to exactly however many people there are —
+  // evenly spaced, no vacant seats, nobody hidden.
+  const positions = uSeatPositions(orderedOthers.length);
 
   const handleSeatClick = (m: EnrichedMember) => {
     if (editMode === 'none' || !isAdmin) { onSeatClick(m); return; }
@@ -1235,9 +1216,13 @@ function HallOfFounders({ members, onSeatClick, isAdmin }: { members: EnrichedMe
   useEffect(() => {
     if (editMode !== 'arrange' || selected.length !== 2) return;
     const [aId, bId] = selected;
-    const sa = memberSlot.get(aId);
-    const sb = memberSlot.get(bId);
-    if (sa !== undefined && sb !== undefined) swapMemberSeats(aId, sb, bId, sa);
+    const ai = orderedOthers.findIndex(m => m.id === aId);
+    const bi = orderedOthers.findIndex(m => m.id === bId);
+    if (ai >= 0 && bi >= 0) {
+      const next = [...orderedOthers];
+      [next[ai], next[bi]] = [next[bi], next[ai]];
+      reorderMembers(next.map(m => m.id));
+    }
     setSelected([]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selected, editMode]);
@@ -1293,30 +1278,19 @@ function HallOfFounders({ members, onSeatClick, isAdmin }: { members: EnrichedMe
           <div className="chamber-floor" />
           <div className="chamber-emblem">◆<span>The Council</span></div>
 
-          {/* Head of the U — Main Founder(s), side by side */}
-          {headSeats.map((m, i) => {
-            const x = 50 + (i - (headSeats.length - 1) / 2) * headSpacing;
+          {/* Head of the U — Main Founder(s) only; nothing shown if there is none */}
+          {mains.map((m, i) => {
+            const x = 50 + (i - (mains.length - 1) / 2) * headSpacing;
             return (
-              <div className="seat-wrap is-main" key={m ? m.id : 'head-vacant'} style={{ left: `${x}%`, top: '8%' }}>
-                <Seat member={m} isMain onClick={handleSeatClick} selected={!!m && selected.includes(m.id)} editing={editing} />
+              <div className="seat-wrap is-main" key={m.id} style={{ left: `${x}%`, top: '8%' }}>
+                <Seat member={m} isMain onClick={handleSeatClick} selected={selected.includes(m.id)} editing={editing} />
               </div>
             );
           })}
 
-          {/* Vacant slot markers (static) */}
-          {U_POSITIONS.map((p, i) => (
-            slotMembers[i] ? null : (
-              <div className="seat-wrap" key={`slot-${i}`} style={{ left: `${p.x}%`, top: `${p.y}%` }}>
-                <Seat member={null} onClick={handleSeatClick} />
-              </div>
-            )
-          ))}
-
-          {/* Filled members — positioned by slot; they glide when their slot changes */}
-          {others.map((m) => {
-            const slot = memberSlot.get(m.id);
-            if (slot === undefined) return null;
-            const p = U_POSITIONS[slot];
+          {/* Perimeter — exactly the non-main members, evenly spaced, no vacancies */}
+          {orderedOthers.map((m, i) => {
+            const p = positions[i];
             return (
               <div className="seat-wrap seat-movable" key={m.id} style={{ left: `${p.x}%`, top: `${p.y}%` }}>
                 <Seat member={m} onClick={handleSeatClick} selected={selected.includes(m.id)} editing={editing} />
@@ -1587,28 +1561,41 @@ function DelegateModal({ onClose, onSuccess, preAuth }: {
 
   useEffect(() => { if (preAuth) applyUser(preAuth); }, [preAuth, applyUser]);
 
-  const handleGoogleAuth = async () => {
-    setLoading(true); setError(null);
-    try { applyUser(await signInWithGoogle()); }
-    catch (err) { setError(err instanceof Error ? err.message : 'Authentication failed. Please try again.'); }
-    finally { setLoading(false); }
-  };
+  // Reliable sign-in: render the official Google button. (The One-Tap prompt
+  // often silently fails to appear, which left "Verifying..." stuck forever.)
+  const btnRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (step !== 'auth' || !btnRef.current) return;
+    let cancelled = false;
+    renderGoogleButton(btnRef.current)
+      .then(u => { if (!cancelled) applyUser(u); })
+      .catch(e => { if (!cancelled) setError(e instanceof Error ? e.message : String(e)); });
+    return () => { cancelled = true; };
+  }, [step, applyUser]);
 
   const handleSubmit = async () => {
     if (!fullName || !grade || !classGroup || !authUser) return;
     setLoading(true);
-    const d = await addDelegate({
-      fullName,
-      firstName: fullName.split(' ')[0],
-      grade, classGroup, bio,
-      email: authUser.email,
-    });
-    setLoading(false);
-    if (d) {
-      setCreated(d);
-      setStep('welcome');
-      onSuccess(d);
-      confetti({ particleCount: 120, spread: 80, origin: { y: 0.5 }, colors: CONFETTI_BLUES });
+    setError(null);
+    try {
+      const d = await addDelegate({
+        fullName,
+        firstName: fullName.split(' ')[0],
+        grade, classGroup, bio,
+        email: authUser.email,
+      });
+      if (d) {
+        setCreated(d);
+        setStep('welcome');
+        onSuccess(d);
+        confetti({ particleCount: 120, spread: 80, origin: { y: 0.5 }, colors: CONFETTI_BLUES });
+      } else {
+        setError('Could not register — this account may already be a founder or delegate.');
+      }
+    } catch {
+      setError('Saving failed. The delegate list may not be enabled yet — ask the admin to publish the Firestore rules.');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -1621,9 +1608,7 @@ function DelegateModal({ onClose, onSuccess, preAuth }: {
           <>
             <div className="modal-title">Join the Delegation</div>
             <p className="modal-subtitle">Sign in with Google to add your name to the Founding Delegates.</p>
-            <button className="google-btn" onClick={handleGoogleAuth} disabled={loading}>
-              {loading ? <span>Verifying...</span> : (<><GoogleIcon /><span>Continue with Google</span></>)}
-            </button>
+            <div ref={btnRef} style={{ display: 'flex', justifyContent: 'center', minHeight: 44 }} />
             {error && <p style={{ color: 'var(--signal)', fontSize: '0.85rem', marginTop: '1rem', textAlign: 'center' }}>{error}</p>}
           </>
         )}
