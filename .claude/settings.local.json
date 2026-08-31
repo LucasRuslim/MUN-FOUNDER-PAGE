@@ -13,7 +13,21 @@
       "Bash(npm install *)",
       "Bash(git add *)",
       "Bash(git commit -m ' *)",
-      "Bash(npm uninstall *)"
+      "Bash(npm uninstall *)",
+      "Bash(git -C \"C:\\\\Users\\\\lucas\\\\Desktop\\\\Sign up\" status --short)",
+      "Bash(git -C \"C:\\\\Users\\\\lucas\\\\Desktop\\\\Sign up\" diff --stat)",
+      "Bash(git -C \"C:\\\\Users\\\\lucas\\\\Desktop\\\\Sign up\" diff .claude/settings.local.json)",
+      "PowerShell($gh = Get-Command gh -ErrorAction SilentlyContinue; if \\($gh\\) { \"gh found: $\\($gh.Source\\)\"; gh auth status } else { \"gh NOT installed\" }; \"=== git config user ===\"; git config user.name; git config user.email)",
+      "PowerShell($gh = \"C:\\\\Program Files\\\\GitHub CLI\\\\gh.exe\"; \"=== AUTH ===\"; & $gh auth status 2>&1; \"=== YOUR REPOS ===\"; & $gh repo list --limit 50 2>&1)",
+      "Bash(git remote *)",
+      "Bash(git fetch *)",
+      "Bash(npm run *)",
+      "Bash(curl -s https://youhua-mun.vercel.app/)",
+      "Bash(git push *)",
+      "Bash(npx tsc *)",
+      "Bash(node \"C:/Users/lucas/.claude/skills/impeccable/scripts/detect.mjs\" --json src/index.css src/App.tsx)",
+      "Bash(gh pr *)",
+      "Bash(git checkout *)"
     ]
   }
 }

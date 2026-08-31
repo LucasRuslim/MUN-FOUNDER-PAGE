@@ -51,7 +51,16 @@
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
-html { scroll-behavior: smooth; }
+html {
+  scroll-behavior: smooth;
+  /* Reserve the scrollbar gutter permanently so locking the page behind a
+     modal doesn't shift the whole layout sideways by 8px. */
+  scrollbar-gutter: stable;
+}
+/* Set by the shared Modal shell for as long as any dialog is open. Lenis also
+   locks itself via .lenis-stopped, but this covers the reduced-motion path
+   where Lenis never starts at all. */
+html.modal-open { overflow: hidden; }
 html.lenis, html.lenis body { height: auto; }
 .lenis.lenis-smooth { scroll-behavior: auto !important; }
 .lenis.lenis-smooth [data-lenis-prevent] { overscroll-behavior: contain; }
@@ -105,6 +114,10 @@ body.intro-active .vignette-overlay,
 body.intro-active .scroll-indicator,
 body.intro-active .hero-orb,
 body.intro-active .emblem-halo,
+body.intro-active .hero-aurora,
+body.intro-active .hero-dust,
+body.intro-active .cursor-glow,
+body.intro-active .starfield,
 body.intro-active .torch { opacity: 0 !important; pointer-events: none !important; }
 
 .hero-bg { transition: opacity 1.6s ease; }
@@ -478,6 +491,26 @@ body.intro-active .intro-scan {
   /* Rest at the same scale the parallax uses so it engages with no pop. */
   transform: scale(1.07);
   will-change: transform;
+}
+/* WebP where supported (~220KB vs 288KB), JPEG above as the fallback. The
+   gradients repeat because background-image is a single shorthand list. */
+@supports (background-image: image-set(url('/un-hall.webp') type('image/webp'))) {
+  .hero-bg {
+    background-image:
+      radial-gradient(ellipse at 50% 22%, rgba(22,39,92,0.55) 0%, transparent 58%),
+      linear-gradient(180deg, rgba(4,7,15,0.62) 0%, rgba(4,7,15,0.80) 55%, var(--abyss) 100%),
+      image-set(url('/un-hall.webp') type('image/webp'), url('/un-hall.jpg') type('image/jpeg'));
+  }
+  /* Phones get a 1100px-wide cut (96KB) — the photo sits under a heavy wash
+     and vignette, so the resolution drop is invisible at this size. */
+  @media (max-width: 700px) {
+    .hero-bg {
+      background-image:
+        radial-gradient(ellipse at 50% 22%, rgba(22,39,92,0.55) 0%, transparent 58%),
+        linear-gradient(180deg, rgba(4,7,15,0.62) 0%, rgba(4,7,15,0.80) 55%, var(--abyss) 100%),
+        image-set(url('/un-hall-sm.webp') type('image/webp'), url('/un-hall.jpg') type('image/jpeg'));
+    }
+  }
 }
 /* Blue duotone wash + cinematic vignette over the photo */
 .hero-bg::before {
@@ -970,121 +1003,249 @@ body.intro-active .intro-scan {
 .hall-inner { max-width: 960px; margin: 0 auto; text-align: center; }
 .hall-subtitle { font-size: 0.95rem; color: var(--silver); font-style: italic; margin-bottom: 1.5rem; letter-spacing: 0.02em; }
 .hall-divider { width: 60px; height: 1px; background: linear-gradient(90deg, transparent, rgba(76,141,255,0.5), transparent); margin: 0 auto 2.5rem; }
-/* U-shaped council chamber */
-.hall-chamber {
+/* ═══════════════════════════════════════════
+   THE CHAMBER
+   The council bench drawn as an architect's plan: a true horseshoe of numbered
+   stations. Every seat the charter allows stays on the drawing, so an unfinished
+   council reads as a room waiting rather than as a short list.
+═══════════════════════════════════════════ */
+.chamber {
   position: relative;
   width: 100%;
-  max-width: 860px;
+  max-width: 840px;
   margin: 0 auto;
-  aspect-ratio: 4 / 3;
 }
-.chamber-floor {
+.chamber-plan {
   position: absolute;
-  left: 19%; right: 19%; top: 23%; bottom: 15%;
-  border: 1px solid rgba(76,141,255,0.22);
-  border-top: none;
-  border-radius: 0 0 140px 140px;
-  background: linear-gradient(180deg, rgba(76,141,255,0.05), rgba(20,38,90,0.18));
-  box-shadow: inset 0 0 70px rgba(76,141,255,0.08);
-  transition: border-color 0.5s ease, box-shadow 0.5s ease;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
 }
-.hall-chamber.complete .chamber-floor {
-  border-color: var(--azure);
-  box-shadow: inset 0 0 90px rgba(76,141,255,0.2);
+.plan-floor { fill: rgba(76,141,255,0.045); transition: fill 0.6s ease; }
+.plan-echo { fill: none; stroke: rgba(76,141,255,0.16); stroke-width: 1.25; }
+.plan-echo.is-faint { stroke: rgba(76,141,255,0.08); }
+.plan-tick { stroke: rgba(132,182,255,0.26); stroke-width: 1.5; }
+.plan-numeral {
+  fill: var(--silver-dim);
+  font-family: 'Epilogue', sans-serif;
+  font-size: 20px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  font-variant-numeric: tabular-nums;
 }
-.chamber-emblem {
-  position: absolute;
-  left: 50%; top: 56%;
-  transform: translate(-50%, -50%);
-  text-align: center;
-  color: rgba(132,182,255,0.35);
-  font-size: 1.4rem;
-  pointer-events: none;
+.chamber.sealed .plan-numeral { fill: var(--azure-dim); }
+.plan-bench {
+  fill: none;
+  stroke: rgba(132,182,255,0.5);
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  transition: stroke 0.6s ease, filter 0.6s ease;
 }
-.chamber-emblem span {
-  display: block;
-  margin-top: 8px;
-  font-family: 'Cormorant Garamond', serif;
-  font-size: 0.95rem;
-  letter-spacing: 0.3em;
-  text-transform: uppercase;
-  color: var(--silver-mute);
+.chamber.sealed .plan-bench { stroke: var(--azure-bright); filter: drop-shadow(0 2px 10px rgba(76,141,255,0.45)); }
+.chamber.sealed .plan-floor { fill: rgba(76,141,255,0.085); }
+
+/* Two paired founders, drawn as a lit chord across the chamber floor */
+.plan-bond {
+  fill: none;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-dasharray: 5 9;
+  opacity: 0.55;
 }
 
-.seat-wrap {
+.chamber-mark {
+  position: absolute;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  text-align: center;
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* ─── The sealing ───
+   All of it rests invisible and is only ever brought up by the ceremony
+   timeline, so a chamber that never animates simply shows no fractures. */
+.seal-fx { pointer-events: none; }
+.seal-flash {
+  fill: rgba(150,196,255,0.34);
+  opacity: 0;
+}
+.seal-wave {
+  fill: none;
+  stroke: #eaf2ff;
+  stroke-width: 2.5;
+  opacity: 0;
+}
+.seal-crack-glow {
+  fill: none;
+  stroke: rgba(132,182,255,0.55);
+  stroke-width: 7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: 0;
+}
+.seal-crack {
+  fill: none;
+  stroke: #eaf2ff;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: 0;
+}
+.chamber-mark-inner { display: block; }
+.chamber-mark-glyph { display: block; font-size: 1.15rem; color: rgba(132,182,255,0.38); }
+.chamber-mark-text {
+  display: block;
+  margin-top: 6px;
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 0.9rem;
+  letter-spacing: 0.34em;
+  text-transform: uppercase;
+  color: var(--silver-dim);
+}
+.chamber.sealed .chamber-mark-text { color: var(--azure-bright); }
+
+/* ─── Stations ─── */
+.seat-station {
   position: absolute;
   transform: translate(-50%, -50%);
-  width: 78px;
+  z-index: 2;
+  /* Glides when an admin swaps two seats. */
+  transition: left 0.7s cubic-bezier(0.22,1,0.3,1), top 0.7s cubic-bezier(0.22,1,0.3,1);
 }
-.seat-wrap.is-main { width: 128px; z-index: 3; }
+.seat-station.is-head { z-index: 4; }
 
 .seat {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 7px;
+  gap: 8px;
+  /* Hugs its content so the hit area doesn't reach into a neighbour's space;
+     the cap is what ellipsises a long name. */
+  width: max-content;
+  max-width: 88px;
+  padding: 0;
   background: none;
   border: none;
-  padding: 0;
-  width: 100%;
   font-family: inherit;
   color: inherit;
+  cursor: pointer;
 }
-.seat.filled { cursor: pointer; }
+.seat:focus-visible { outline: 2px solid var(--azure-bright); outline-offset: 5px; border-radius: 10px; }
+.seat-portrait { position: relative; display: block; }
 .seat-avatar {
-  width: 52px; height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 54px; height: 54px;
   border-radius: 50%;
   object-fit: cover;
-  border: 2px solid rgba(76,141,255,0.4);
-  background: rgba(76,141,255,0.08);
-  display: flex; align-items: center; justify-content: center;
+  border: 1.5px solid rgba(132,182,255,0.45);
+  background: linear-gradient(158deg, #16264d, #0a1229);
   color: var(--ice);
-  transition: transform 0.3s cubic-bezier(0.16,1,0.3,1), box-shadow 0.3s ease, border-color 0.3s ease;
-}
-.seat-avatar.placeholder { font-size: 1.3rem; }
-.seat.filled:hover .seat-avatar {
-  transform: translateY(-4px) scale(1.1);
-  box-shadow: 0 12px 28px rgba(76,141,255,0.35);
-  border-color: var(--azure-bright);
-}
-.seat-avatar.vacant {
-  border-style: dashed;
-  border-color: rgba(120,140,180,0.32);
-  background: rgba(8,14,31,0.4);
-  color: var(--silver-mute);
-}
-.seat-label {
   font-family: 'Cormorant Garamond', serif;
-  font-size: 0.86rem;
+  font-size: 1.25rem;
   font-weight: 600;
-  color: var(--ice);
-  text-align: center;
-  line-height: 1.15;
-  max-width: 100%;
+  transition: transform 0.45s cubic-bezier(0.16,1,0.3,1), box-shadow 0.45s ease, border-color 0.35s ease, background-color 0.35s ease;
 }
+.seat:hover .seat-avatar,
+.seat:focus-visible .seat-avatar {
+  transform: translateY(-5px) scale(1.08);
+  border-color: var(--azure-bright);
+  box-shadow: 0 14px 30px rgba(3,6,14,0.65), 0 0 0 1px rgba(132,182,255,0.5);
+}
+.seat-plate { display: flex; flex-direction: column; gap: 1px; max-width: 100%; }
 .seat-name {
-  display: inline-block;
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--platinum);
+  line-height: 1.15;
   max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  vertical-align: bottom;
 }
-.seat-grade {
-  display: block;
-  font-family: 'Epilogue', sans-serif;
-  font-size: 0.6rem;
-  letter-spacing: 0.06em;
-  color: var(--silver-mute);
-  margin-top: 2px;
-  font-weight: 400;
+.seat-role {
+  font-size: 0.62rem;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--silver-dim);
+  font-variant-numeric: tabular-nums;
 }
-.seat.vacant .seat-label { color: var(--silver-mute); font-style: italic; font-weight: 400; }
 
-/* Main founder — head of the U */
-.seat.main .seat-avatar { width: 76px; height: 76px; border-color: var(--azure-bright); box-shadow: 0 0 26px rgba(76,141,255,0.45); }
-.seat.main .seat-label { color: var(--azure-bright); }
-.seat.main .seat-avatar.vacant { border-color: rgba(132,182,255,0.4); box-shadow: none; }
+.seat-crown {
+  position: absolute;
+  top: -10px; left: 50%;
+  transform: translateX(-50%);
+  font-style: normal;
+  font-size: 0.75rem;
+  color: var(--azure-bright);
+  text-shadow: 0 1px 8px rgba(132,182,255,0.9);
+}
+.seat-bond {
+  position: absolute;
+  right: -2px; bottom: -2px;
+  width: 18px; height: 18px;
+  border-radius: 50%;
+  border: 2px solid #0a1024;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 9px;
+  font-style: normal;
+  color: #14182e;
+}
+.seat.has-bond .seat-avatar {
+  border-color: var(--bond, var(--azure-bright));
+  box-shadow: 0 10px 26px rgba(3,6,14,0.55), 0 0 0 1px var(--bond, var(--azure-bright));
+}
+
+/* Head of Council — the open end of the horseshoe */
+.seat.is-head { width: 136px; }
+.seat.is-head .seat-avatar {
+  width: 78px; height: 78px;
+  border-color: var(--azure-bright);
+  box-shadow: 0 10px 30px rgba(3,6,14,0.6), 0 0 0 1px rgba(132,182,255,0.55);
+}
+.seat.is-head .seat-name { font-size: 1.15rem; }
+.seat.is-head .seat-role { color: var(--azure-bright); }
+
+/* Unclaimed stations */
+.seat.is-vacant { cursor: default; }
+.seat.is-vacant .seat-avatar {
+  border-style: dashed;
+  border-color: rgba(120,142,184,0.34);
+  background: rgba(8,14,31,0.35);
+}
+.seat.is-vacant .seat-name {
+  font-family: 'Epilogue', sans-serif;
+  font-size: 0.62rem;
+  font-weight: 500;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--silver-dim);
+}
+.seat.claimable { cursor: pointer; }
+.seat.claimable:hover .seat-avatar,
+.seat.claimable:focus-visible .seat-avatar {
+  border-style: solid;
+  border-color: var(--azure-bright);
+  background: rgba(76,141,255,0.14);
+  color: var(--azure-bright);
+  transform: translateY(-4px) scale(1.06);
+  box-shadow: 0 12px 26px rgba(3,6,14,0.6);
+}
+.seat.claimable:hover .seat-name,
+.seat.claimable:focus-visible .seat-name { color: var(--azure-bright); }
+
+.seat.selected .seat-avatar {
+  border-color: var(--azure-bright);
+  outline: 2px solid var(--azure-bright);
+  outline-offset: 3px;
+  transform: translateY(-4px) scale(1.08);
+}
+/* While arranging or pairing, vacant stations step back out of the way. */
+.chamber.editing .seat.is-vacant { opacity: 0.3; }
 
 .chamber-hint {
   text-align: center;
@@ -1153,48 +1314,9 @@ body.intro-active .intro-scan {
 .council-go:hover { transform: translateY(-1px); box-shadow: 0 8px 20px rgba(76,141,255,0.4); }
 .council-go.danger { background: rgba(255,90,95,0.15); border-color: var(--signal); color: #ff8a8e; }
 
-/* Seats glide to their new position when the admin swaps them */
-.seat-wrap.seat-movable {
-  transition: left 0.7s cubic-bezier(0.22, 1, 0.3, 1), top 0.7s cubic-bezier(0.22, 1, 0.3, 1);
-  z-index: 2;
-}
-.seat { position: relative; }
-.hall-chamber.editing .seat.filled { cursor: pointer; }
-
-/* Selected-for-edit */
-.seat.selected { z-index: 12; }
-.seat.selected .seat-avatar {
-  border-color: var(--azure-bright);
-  outline: 2px solid var(--azure-bright);
-  outline-offset: 3px;
-  box-shadow: 0 0 24px rgba(132,182,255,0.75) !important;
-  transform: translateY(-4px) scale(1.1);
-}
-
-/* Bestie pairing — shared glow + badge */
-.seat.has-bestie { z-index: 6; }
-.seat.has-bestie .seat-avatar {
-  border-color: var(--bestie, var(--azure-bright));
-  box-shadow: 0 0 0 2px var(--bestie, var(--azure-bright)), 0 0 18px var(--bestie, var(--azure-bright));
-}
-.bestie-badge {
-  position: absolute;
-  top: -7px;
-  left: 50%;
-  transform: translateX(-50%);
-  font-size: 0.5rem;
-  font-weight: 800;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: #1a1024;
-  padding: 2px 8px;
-  border-radius: 999px;
-  white-space: nowrap;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.45);
-  pointer-events: none;
-}
+.seat-station.is-head, .seat-station:has(.selected), .seat-station:has(.has-bond) { z-index: 6; }
 @media (prefers-reduced-motion: reduce) {
-  .seat-wrap.seat-movable { transition: none; }
+  .seat-station { transition: none; }
 }
 
 /* Admin panel inside detail modal */
@@ -1229,13 +1351,9 @@ body.intro-active .intro-scan {
 .admin-act.danger { background: rgba(255,90,95,0.08); border-color: rgba(255,90,95,0.4); color: #ff8a8e; }
 .admin-act.danger:hover { background: rgba(255,90,95,0.18); border-color: var(--signal); }
 
-@media (max-width: 640px) {
-  .hall-chamber { aspect-ratio: 3 / 4; max-width: 380px; }
-  .seat-wrap { width: 78px; }
-  .seat-wrap.is-main { width: 96px; }
-  .seat-avatar { width: 44px; height: 44px; }
-  .seat.main .seat-avatar { width: 58px; height: 58px; }
-  .seat-label { font-size: 0.78rem; }
+/* The chamber wants every horizontal pixel it can get on a phone. */
+@media (max-width: 720px) {
+  .hall { padding-left: 0.75rem; padding-right: 0.75rem; }
 }
 
 /* ═══════════════════════════════════════════
@@ -1312,6 +1430,25 @@ body.intro-active .intro-scan {
 .modal-close:hover { color: var(--platinum); transform: rotate(90deg); }
 .modal-title { font-family: 'Cormorant Garamond', serif; font-size: 1.8rem; color: var(--platinum); margin-bottom: 0.5rem; text-align: center; }
 .modal-subtitle { font-size: 0.88rem; color: var(--silver); text-align: center; margin-bottom: 1.5rem; }
+
+/* Confirm dialog — the in-app replacement for window.confirm */
+.confirm-actions { display: flex; gap: 12px; margin-top: 1.5rem; }
+.confirm-actions button {
+  flex: 1; min-height: 44px; padding: 12px 16px;
+  border-radius: 3px; cursor: pointer;
+  font-family: inherit; font-size: 0.72rem; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.14em;
+  transition: background-color 0.25s ease, border-color 0.25s ease, color 0.25s ease;
+}
+.confirm-cancel { background: rgba(3,6,14,0.4); border: 1px solid rgba(76,141,255,0.25); color: var(--silver); }
+.confirm-cancel:hover:not(:disabled) { border-color: var(--azure); color: var(--platinum); }
+.confirm-go { background: rgba(76,141,255,0.18); border: 1px solid var(--azure); color: var(--platinum); }
+.confirm-go:hover:not(:disabled) { background: rgba(76,141,255,0.32); }
+.confirm-go.danger { background: rgba(255,90,95,0.10); border-color: rgba(255,90,95,0.45); color: #ff9296; }
+.confirm-go.danger:hover:not(:disabled) { background: rgba(255,90,95,0.22); color: #ffb3b6; }
+.confirm-actions button:disabled { opacity: 0.5; cursor: default; }
+
+.form-error { color: #ff9296; font-size: 0.8rem; text-align: center; margin-top: 0.75rem; }
 
 .google-btn {
   display: flex; align-items: center; justify-content: center; gap: 12px;
@@ -1426,6 +1563,7 @@ body.intro-active .intro-scan {
 .sealed-stamp { width: 120px; height: 120px; border-radius: 50%; background: radial-gradient(circle, var(--azure), var(--azure-deep)); display: flex; align-items: center; justify-content: center; font-size: 3rem; margin-bottom: 2rem; animation: sealStamp 0.8s ease forwards; box-shadow: 0 0 60px rgba(76,141,255,0.5); color: #fff; }
 .sealed-title { font-family: 'Cormorant Garamond', serif; font-size: clamp(1.8rem, 5vw, 3rem); color: var(--platinum); margin-bottom: 1rem; }
 .sealed-sub { color: var(--silver); font-size: 1rem; max-width: 500px; }
+.sealed-panel { display: flex; flex-direction: column; align-items: center; }
 
 /* ═══════════════════════════════════════════
    TICKER
@@ -1564,6 +1702,305 @@ body.intro-active .intro-scan {
   .delegate-avatar.mono { font-size: 1.4rem; }
 }
 
+/* ═══════════════════════════════════════════
+   CINEMATIC LAYER — ambient light, dust, chamber choreography
+═══════════════════════════════════════════ */
+
+/* Cursor-following light (desktop only; element is created but JS bails on touch) */
+.cursor-glow {
+  position: fixed;
+  left: 0; top: 0;
+  width: 640px; height: 640px;
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 850;
+  opacity: 0;
+  transition: opacity 0.8s ease;
+  background: radial-gradient(circle, rgba(96,154,255,0.13) 0%, rgba(76,141,255,0.07) 35%, transparent 70%);
+  mix-blend-mode: screen;
+  will-change: transform;
+}
+
+/* Ambient dust particles in the hero */
+.hero-dust { position: absolute; inset: 0; z-index: 1; pointer-events: none; }
+
+/* Page-wide starfield — sits above the body background, below all content */
+.starfield {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+}
+
+/* Dissolve the hero's bottom edge into the page so there is no hard seam
+   between the chamber photo / water shimmer and the next chapter. */
+.hero::after {
+  content: '';
+  position: absolute;
+  left: 0; right: 0; bottom: -1px;
+  height: 24vh;
+  z-index: 2;
+  pointer-events: none;
+  background: linear-gradient(180deg, transparent, rgba(3,6,14,0.6) 55%, var(--abyss) 92%);
+}
+
+/* Slow aurora band sweeping across the hero photo */
+.hero-aurora {
+  position: absolute;
+  inset: -15% -25%;
+  z-index: 0;
+  pointer-events: none;
+  background: linear-gradient(105deg,
+    transparent 38%, rgba(47,99,214,0.16) 46%, rgba(132,182,255,0.22) 50%,
+    rgba(47,99,214,0.16) 54%, transparent 62%);
+  filter: blur(30px);
+  mix-blend-mode: screen;
+  animation: auroraDrift 16s ease-in-out infinite alternate;
+}
+@keyframes auroraDrift {
+  from { transform: translateX(-6%) skewX(-4deg); }
+  to   { transform: translateX(6%)  skewX(3deg); }
+}
+
+/* Chapter light beams — drawn by GSAP scroll scrub */
+.section-beam {
+  display: block;
+  width: 1px; height: 52px;
+  margin: 0 auto 1.1rem;
+  background: linear-gradient(180deg, transparent, var(--azure) 45%, rgba(132,182,255,0.9));
+  transform-origin: top center;
+}
+
+/* War-table tilt — the chamber leans toward the cursor */
+/* The chamber's entrance is driven entirely from GSAP (see useScrollFX), never
+   from a resting CSS state. The room has to be a room whether or not the
+   animation ever runs: an earlier pass gated the bench and its station marks on
+   a .drawn class and they simply never appeared if ScrollTrigger mis-measured. */
+@media (prefers-reduced-motion: no-preference) {
+  .plan-bond { animation: bondDrift 3.2s linear infinite; }
+}
+@keyframes bondDrift { to { stroke-dashoffset: -28; } }
+
+/* Phones get the taller room: smaller stations, and the ring carries portraits
+   only. The nameplate would collide with its neighbours around the bend, and
+   the dossier is one tap away. */
+@media (max-width: 720px) {
+  .seat { width: 46px; gap: 5px; }
+  .seat-avatar { width: 38px; height: 38px; font-size: 0.95rem; }
+  .seat .seat-plate { display: none; }
+  .seat-bond { width: 14px; height: 14px; font-size: 7px; }
+  .plan-numeral { font-size: 26px; }
+  .seat.is-head { width: 128px; }
+  .seat.is-head .seat-avatar { width: 62px; height: 62px; }
+  .seat.is-head .seat-plate { display: flex; }
+  .chamber-mark-glyph { font-size: 0.95rem; }
+  .chamber-mark-text { font-size: 0.72rem; letter-spacing: 0.26em; }
+}
+@media (max-width: 380px) {
+  .seat { width: 42px; }
+  .seat-avatar { width: 34px; height: 34px; font-size: 0.85rem; }
+  .seat.is-head { width: 112px; }
+  .seat.is-head .seat-avatar { width: 54px; height: 54px; }
+}
+
+/* CTA sonar — a faint ring breathes outward from the primary action */
+.magnetic-wrapper { position: relative; }
+.magnetic-wrapper::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border: 1px solid rgba(132,182,255,0.55);
+  border-radius: 3px;
+  opacity: 0;
+  pointer-events: none;
+  animation: ctaSonar 3.8s cubic-bezier(0.16, 1, 0.3, 1) 1.8s infinite;
+}
+@keyframes ctaSonar {
+  0%        { opacity: 0;    transform: scale(1); }
+  10%       { opacity: 0.55; }
+  55%, 100% { opacity: 0;    transform: scale(1.14, 1.6); }
+}
+
+/* Value cards — hairline corners draw in on hover */
+.card-corners i {
+  position: absolute;
+  width: 14px; height: 14px;
+  border: 0 solid var(--azure-bright);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.45s cubic-bezier(0.16,1,0.3,1), transform 0.45s cubic-bezier(0.16,1,0.3,1);
+}
+.card-corners i:nth-child(1) { top: 10px;    left: 10px;  border-top-width: 1px;    border-left-width: 1px;  transform: translate(6px, 6px); }
+.card-corners i:nth-child(2) { top: 10px;    right: 10px; border-top-width: 1px;    border-right-width: 1px; transform: translate(-6px, 6px); }
+.card-corners i:nth-child(3) { bottom: 10px; left: 10px;  border-bottom-width: 1px; border-left-width: 1px;  transform: translate(6px, -6px); }
+.card-corners i:nth-child(4) { bottom: 10px; right: 10px; border-bottom-width: 1px; border-right-width: 1px; transform: translate(-6px, -6px); }
+.value-card:hover .card-corners i { opacity: 0.85; transform: translate(0, 0); }
+
+/* Ticker — names dissolve at the edges instead of hard-clipping */
+.ticker-bar {
+  mask-image: linear-gradient(90deg, transparent, #000 7%, #000 93%, transparent);
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 7%, #000 93%, transparent);
+}
+
+/* Delegate cards — avatar lights up on hover */
+.delegate-avatar { transition: box-shadow 0.35s ease, border-color 0.35s ease, transform 0.35s cubic-bezier(0.16,1,0.3,1); }
+.delegate-card:hover .delegate-avatar {
+  border-color: var(--azure-bright);
+  box-shadow: 0 0 0 3px rgba(132,182,255,0.25), 0 10px 26px rgba(76,141,255,0.35);
+  transform: scale(1.06);
+}
+
+/* ═══════════════════════════════════════════
+   SECTION REFINEMENTS — dossier framing + rhythm for Privilege & Mission
+═══════════════════════════════════════════ */
+
+.section-title { margin-bottom: 3rem; }
+.about-intro { margin: 0 auto 3rem; }
+
+/* The Privilege — an editorial ledger: three rows, hairline rules, no boxes */
+.ledger {
+  max-width: 880px;
+  margin: 0 auto;
+  border-top: 1px solid rgba(76,141,255,0.18);
+}
+.ledger-row {
+  display: grid;
+  grid-template-columns: 28px minmax(220px, 38%) 1fr;
+  gap: 2rem;
+  align-items: baseline;
+  padding: 2.5rem 0.5rem;
+  border-bottom: 1px solid rgba(76,141,255,0.18);
+  transition: background 0.4s ease;
+}
+.ledger-row:hover { background: rgba(76,141,255,0.04); }
+.ledger-mark {
+  color: var(--azure-dim);
+  font-size: 0.8rem;
+  opacity: 0.5;
+  transform: translateX(-6px);
+  transition: color 0.4s ease, transform 0.5s cubic-bezier(0.16,1,0.3,1), opacity 0.4s ease;
+}
+.ledger-row:hover .ledger-mark { color: var(--azure-bright); transform: translateX(0); opacity: 1; }
+.ledger-title {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 1.7rem;
+  font-weight: 600;
+  color: var(--platinum);
+  margin: 0;
+  line-height: 1.2;
+  transition: color 0.4s ease;
+}
+.ledger-row:hover .ledger-title { color: var(--ice); }
+.ledger-text {
+  font-size: 0.95rem;
+  color: var(--silver);
+  line-height: 1.8;
+  margin: 0;
+  max-width: 56ch;
+}
+@media (max-width: 700px) {
+  .ledger-row { grid-template-columns: 20px 1fr; gap: 0.75rem 1rem; padding: 2rem 0.25rem; }
+  .ledger-text { grid-column: 2; }
+}
+
+/* The Mission — pillars become a framed triptych with drawn separators */
+.pillars {
+  gap: 0;
+  margin: 0 0 4rem;
+  border-top: 1px solid rgba(76,141,255,0.18);
+  border-bottom: 1px solid rgba(76,141,255,0.18);
+}
+.pillar {
+  border-top: none;
+  padding: 2.5rem 2rem;
+  position: relative;
+  transition: transform 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.pillar:hover { transform: translateY(-3px); }
+.pillar + .pillar::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 18%; bottom: 18%;
+  width: 1px;
+  background: linear-gradient(180deg, transparent, rgba(76,141,255,0.4), transparent);
+}
+.pillar-word { transition: color 0.4s ease, text-shadow 0.4s ease; }
+.pillar:hover .pillar-word { color: var(--ice); text-shadow: 0 0 24px rgba(132,182,255,0.45); }
+
+/* Stats — one framed registry band, not three identical boxes */
+.stats-row {
+  gap: 0;
+  margin: 0 0 4rem;
+  border: 1px solid rgba(76,141,255,0.14);
+  border-top: 1px solid rgba(132,182,255,0.35);
+  border-radius: 3px;
+  background: linear-gradient(160deg, rgba(19,32,63,0.45), rgba(10,17,36,0.35));
+  overflow: hidden;
+}
+.stat-item {
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  padding: 2.5rem 2rem;
+  position: relative;
+  transition: background 0.4s ease;
+}
+.stat-item:hover { background: rgba(76,141,255,0.05); }
+.stat-item + .stat-item::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 18%; bottom: 18%;
+  width: 1px;
+  background: linear-gradient(180deg, transparent, rgba(76,141,255,0.4), transparent);
+}
+.stat-number,
+.ring-number,
+.delegation-count-num { font-variant-numeric: tabular-nums; }
+
+.pull-quote { margin: 0 auto; }
+.quote-attr::before {
+  content: '';
+  display: inline-block;
+  width: 24px; height: 1px;
+  background: var(--azure-dim);
+  vertical-align: middle;
+  margin-right: 10px;
+}
+
+@media (max-width: 700px) {
+  .pillar + .pillar::before,
+  .stat-item + .stat-item::before {
+    top: 0; left: 20%; right: 20%; bottom: auto;
+    width: auto; height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(76,141,255,0.4), transparent);
+  }
+}
+
+/* Drawn choreography — only when motion is allowed (GSAP adds .drawn; under
+   reduced motion it never runs, so everything must rest fully visible). */
+@media (prefers-reduced-motion: no-preference) {
+  .pillar + .pillar::before,
+  .stat-item + .stat-item::before {
+    transform: scaleY(0);
+    transition: transform 1s cubic-bezier(0.16, 1, 0.3, 1) 0.2s;
+  }
+  .pillars.drawn .pillar + .pillar::before,
+  .stats-row.drawn .stat-item + .stat-item::before { transform: scaleY(1); }
+
+  .pillar-word {
+    clip-path: inset(0 0 100% 0);
+    transition: clip-path 0.9s cubic-bezier(0.16, 1, 0.3, 1), color 0.4s ease, text-shadow 0.4s ease;
+  }
+  .pillars.drawn .pillar-word { clip-path: inset(0 0 0 0); }
+  .pillars.drawn .pillar:nth-child(2) .pillar-word { transition-delay: 0.12s; }
+  .pillars.drawn .pillar:nth-child(3) .pillar-word { transition-delay: 0.24s; }
+}
+@media (max-width: 700px) and (prefers-reduced-motion: no-preference) {
+  .pillar + .pillar::before,
+  .stat-item + .stat-item::before { transform: scaleX(0); }
+  .pillars.drawn .pillar + .pillar::before,
+  .stats-row.drawn .stat-item + .stat-item::before { transform: scaleX(1); }
+}
 /* ═══════════════════════════════════════════
    REDUCED MOTION
 ═══════════════════════════════════════════ */

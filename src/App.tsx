@@ -13,6 +13,14 @@ gsap.registerPlugin(ScrollTrigger);
 
 const MAX = 15;
 const SCHOOL = 'Youhua';
+
+/* Avatars live as base64 inside the member document and every Firestore
+   snapshot re-downloads them, so the stored size is a bandwidth decision as
+   much as a visual one. 192px keeps the 104px detail portrait crisp on 2x
+   displays while costing roughly half of what 256 @ q0.85 did. */
+const AVATAR_PX = 192;
+const AVATAR_QUALITY = 0.72;
+const CROP_BOX_PX = 200; // the on-screen cropper, in CSS pixels
 const ADMIN_EMAIL = 'lucas1121.lin@gmail.com';
 const isAdminEmail = (email?: string | null) => !!email && email.toLowerCase() === ADMIN_EMAIL.toLowerCase();
 
@@ -92,21 +100,30 @@ function WordRevealTitle({ text, loaded }: { text: string; loaded: boolean }) {
 
 /* ─── Counter animation hook ─── */
 function useCountUp(target: number, duration = 2000) {
-  const [value, setValue] = useState(0);
+  const ref = useRef<HTMLSpanElement>(null);
   const triggered = useRef(false);
+  const rafRef = useRef(0);
+  useEffect(() => () => cancelAnimationFrame(rafRef.current), []);
   const start = useCallback(() => {
     if (triggered.current) return;
+    const el = ref.current;
+    if (!el) return;
     triggered.current = true;
-    const startTime = Date.now();
-    const tick = () => {
-      const elapsed = Date.now() - startTime;
-      const progress = Math.min(elapsed / duration, 1);
-      setValue(Math.floor(progress * target));
-      if (progress < 1) requestAnimationFrame(tick);
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      el.textContent = String(target);
+      return;
+    }
+    // Counts by writing to the node directly. Three of these run at once, and
+    // via setState that was three React renders per frame for two seconds.
+    const startTime = performance.now();
+    const tick = (now: number) => {
+      const progress = Math.min((now - startTime) / duration, 1);
+      el.textContent = String(Math.floor(progress * target));
+      if (progress < 1) rafRef.current = requestAnimationFrame(tick);
     };
-    requestAnimationFrame(tick);
+    rafRef.current = requestAnimationFrame(tick);
   }, [target, duration]);
-  return { value, start };
+  return { ref, start };
 }
 
 /* ─── Progress Ring ─── */
@@ -167,6 +184,27 @@ function DelegateRing({ count }: { count: number }) {
   );
 }
 
+/* ─── Intro timing ───
+   The full cinematic is worth 4.5s the first time you land. It is not worth it
+   on every reload, so it runs once per browser session and repeat visits get a
+   short fade instead. Resolved once at module scope and memoised: `LoadingScreen`
+   writes the "seen" flag from a child effect, which fires BEFORE the parent's
+   effects, so anything reading sessionStorage later would otherwise disagree
+   with the intro that is actually playing. */
+const INTRO_SEEN_KEY = 'youhua-mun.intro-seen';
+let introPlan: { hold: number; settle: number } | null = null;
+function getIntroPlan() {
+  if (introPlan) return introPlan;
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    introPlan = { hold: 0, settle: 0 };
+  } else {
+    let seen = false;
+    try { seen = sessionStorage.getItem(INTRO_SEEN_KEY) === '1'; } catch { /* private mode */ }
+    introPlan = seen ? { hold: 400, settle: 600 } : { hold: 2200, settle: 2300 };
+  }
+  return introPlan;
+}
+
 /* ─── Loading Screen ─── */
 function LoadingScreen({ onReveal, onDone }: { onReveal: () => void; onDone: () => void }) {
   const [gone, setGone] = useState(false);
@@ -176,15 +214,15 @@ function LoadingScreen({ onReveal, onDone }: { onReveal: () => void; onDone: () 
     // `intro-active` (dark, UI + bg hidden, globe large+bright). Removing it lets the
     // SAME hero globe zoom out + fade its colour into the background via CSS transition.
     document.body.classList.add('intro-active');
-    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const { hold, settle } = getIntroPlan();
+    try { sessionStorage.setItem(INTRO_SEEN_KEY, '1'); } catch { /* private mode */ }
 
-    const settleDelay = reduced ? 0 : 2200;
     const t1 = setTimeout(() => {
       document.body.classList.remove('intro-active'); // triggers the globe zoom-out + scene reveal
       onReveal();
-    }, settleDelay);
-    // onDone fires after the 2s globe settle fully finishes → mouse parallax starts cleanly.
-    const t2 = setTimeout(() => { setGone(true); onDone(); }, settleDelay + (reduced ? 0 : 2300));
+    }, hold);
+    // onDone fires after the globe settle fully finishes → mouse parallax starts cleanly.
+    const t2 = setTimeout(() => { setGone(true); onDone(); }, hold + settle);
 
     return () => { clearTimeout(t1); clearTimeout(t2); document.body.classList.remove('intro-active'); };
   }, [onReveal, onDone]);
@@ -209,6 +247,196 @@ function MagneticCta({ children, onClick, disabled }: { children: React.ReactNod
     <div ref={wrapRef} className="magnetic-wrapper" onMouseMove={handleMouseMove} onMouseLeave={handleMouseLeave}>
       <button className="cta-btn" onClick={onClick} disabled={disabled}>{children}</button>
     </div>
+  );
+}
+
+/* ─── Cursor light — a soft azure glow that follows the pointer ─── */
+function CursorGlow() {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    if (window.matchMedia('(pointer: coarse)').matches) return;
+    const el = ref.current;
+    if (!el) return;
+    let mx = window.innerWidth / 2, my = window.innerHeight * 0.4, x = mx, y = my, raf = 0;
+    const draw = () => { el.style.transform = `translate(${x}px, ${y}px) translate(-50%, -50%)`; };
+    // The loop parks itself once the glow has caught up with the pointer, and a
+    // move restarts it. Previously it ran every frame for the life of the page
+    // even with the mouse sitting still.
+    const loop = () => {
+      raf = 0;
+      const dx = mx - x, dy = my - y;
+      if (Math.abs(dx) < 0.15 && Math.abs(dy) < 0.15) { x = mx; y = my; draw(); return; }
+      x += dx * 0.12;
+      y += dy * 0.12;
+      draw();
+      raf = requestAnimationFrame(loop);
+    };
+    const kick = () => { if (!raf) raf = requestAnimationFrame(loop); };
+    const onMove = (e: MouseEvent) => {
+      mx = e.clientX; my = e.clientY;
+      el.style.opacity = '1';
+      kick();
+    };
+    const onLeave = () => { el.style.opacity = '0'; };
+    window.addEventListener('mousemove', onMove, { passive: true });
+    document.documentElement.addEventListener('mouseleave', onLeave);
+    draw();
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      document.documentElement.removeEventListener('mouseleave', onLeave);
+      cancelAnimationFrame(raf);
+    };
+  }, []);
+  return <div ref={ref} className="cursor-glow" aria-hidden="true" />;
+}
+
+/* ─── Hero dust — ambient particles drifting up through the light ─── */
+function HeroDust() {
+  const ref = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    const canvas = ref.current;
+    if (!canvas || !canvas.parentElement) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    const DPR = Math.min(window.devicePixelRatio || 1, 2);
+    let w = 0, h = 0, raf = 0, running = true, t = 0;
+    type P = { x: number; y: number; r: number; s: number; a: number; ph: number; sw: number };
+    let pts: P[] = [];
+    const resize = () => {
+      const rect = canvas.parentElement!.getBoundingClientRect();
+      w = rect.width; h = rect.height;
+      canvas.width = w * DPR; canvas.height = h * DPR;
+      ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+      const n = Math.round(Math.min(110, (w * h) / 14000));
+      pts = Array.from({ length: n }, () => ({
+        x: Math.random() * w, y: Math.random() * h,
+        r: 0.7 + Math.random() * 2.0,
+        s: 0.1 + Math.random() * 0.35,
+        a: 0.12 + Math.random() * 0.4,
+        ph: Math.random() * Math.PI * 2,
+        sw: 0.2 + Math.random() * 0.6,
+      }));
+    };
+    resize();
+    const onR = () => resize();
+    window.addEventListener('resize', onR);
+    const tick = () => {
+      raf = requestAnimationFrame(tick);
+      if (!running) return;
+      t += 0.016;
+      ctx.clearRect(0, 0, w, h);
+      for (const p of pts) {
+        p.y -= p.s;
+        p.x += Math.sin(t * p.sw + p.ph) * 0.15;
+        if (p.y < -4) { p.y = h + 4; p.x = Math.random() * w; }
+        const tw = 0.6 + 0.4 * Math.sin(t * 1.6 + p.ph); // twinkle
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(160,198,255,${(p.a * tw).toFixed(3)})`;
+        ctx.fill();
+      }
+    };
+    raf = requestAnimationFrame(tick);
+    // Pause the loop while the hero is off-screen.
+    const io = new IntersectionObserver(([e]) => { running = e.isIntersecting; }, { threshold: 0 });
+    io.observe(canvas);
+    return () => { cancelAnimationFrame(raf); window.removeEventListener('resize', onR); io.disconnect(); };
+  }, []);
+  return <canvas ref={ref} className="hero-dust" aria-hidden="true" />;
+}
+
+/* ─── Starfield — page-wide ambient stars with scroll-depth parallax ─── */
+function Starfield() {
+  const ref = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    const canvas = ref.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    const DPR = Math.min(window.devicePixelRatio || 1, 2);
+    let w = 0, h = 0, raf = 0, t = 0;
+    type S = { x: number; y: number; r: number; a: number; ph: number; d: number };
+    let stars: S[] = [];
+    const resize = () => {
+      w = window.innerWidth; h = window.innerHeight;
+      canvas.width = w * DPR; canvas.height = h * DPR;
+      ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+      const n = Math.round(Math.min(150, (w * h) / 26000));
+      stars = Array.from({ length: n }, () => ({
+        x: Math.random() * w, y: Math.random() * h,
+        r: 0.4 + Math.random() * 1.3,
+        a: 0.05 + Math.random() * 0.3,
+        ph: Math.random() * Math.PI * 2,
+        d: 0.25 + Math.random() * 0.75, // depth → parallax + twinkle speed
+      }));
+    };
+    resize();
+    window.addEventListener('resize', resize);
+    // Cached rather than read per frame: `window.scrollY` inside the rAF forces a
+    // layout flush in the middle of the frame that Lenis is writing transforms
+    // into, which is exactly the wrong moment to ask for one.
+    let sy = window.scrollY;
+    const onScroll = () => { sy = window.scrollY; };
+    window.addEventListener('scroll', onScroll, { passive: true });
+    const tick = () => {
+      raf = requestAnimationFrame(tick);
+      t += 0.016;
+      ctx.clearRect(0, 0, w, h);
+      for (const s of stars) {
+        const tw = 0.55 + 0.45 * Math.sin(t * (0.6 + s.d) + s.ph);
+        // Deeper stars drift slower against the scroll → parallax depth.
+        const y = (((s.y - sy * 0.06 * s.d) % h) + h) % h;
+        ctx.beginPath();
+        ctx.arc(s.x, y, s.r, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(150,190,255,${(s.a * tw).toFixed(3)})`;
+        ctx.fill();
+      }
+    };
+    raf = requestAnimationFrame(tick);
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener('resize', resize);
+      window.removeEventListener('scroll', onScroll);
+    };
+  }, []);
+  return <canvas ref={ref} className="starfield" aria-hidden="true" />;
+}
+
+/* ─── Decrypt — section labels resolve out of cipher glyphs when seen ─── */
+const DECRYPT_GLYPHS = '◆▮▰·ABCDEFGHIKLMNOPRSTUVZ0123456789';
+function Decrypt({ text }: { text: string }) {
+  const { ref, visible } = useInView(0.6);
+  const outRef = useRef<HTMLSpanElement>(null);
+  const ran = useRef(false);
+  useEffect(() => {
+    if (!visible || ran.current) return;
+    ran.current = true;
+    const el = outRef.current;
+    if (!el) return;
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    let frame = 0, raf = 0;
+    const total = Math.max(30, text.length * 3.2);
+    const tick = () => {
+      frame++;
+      const solved = Math.floor((frame / total) * text.length);
+      // Straight to the DOM node. React never re-renders this span (the
+      // component holds no state), so the scramble can't fight the render.
+      el.textContent = text.split('').map((ch, i) =>
+        ch === ' ' ? ' ' : i < solved ? ch : DECRYPT_GLYPHS[(Math.random() * DECRYPT_GLYPHS.length) | 0]
+      ).join('');
+      if (solved < text.length) raf = requestAnimationFrame(tick);
+      else el.textContent = text;
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [visible, text]);
+  return (
+    <span ref={ref as any} style={{ display: 'inline-block' }}>
+      <span ref={outRef}>{text}</span>
+    </span>
   );
 }
 
@@ -335,22 +563,170 @@ function AudioToggle() {
     masterRef.current = master;
   };
 
+  const suspendTimer = useRef<number | null>(null);
+
   const toggle = () => {
     ensureGraph();
     const ctx = ctxRef.current!;
     const master = masterRef.current!;
+    if (suspendTimer.current) { clearTimeout(suspendTimer.current); suspendTimer.current = null; }
     if (ctx.state === 'suspended') ctx.resume();
     master.gain.cancelScheduledValues(ctx.currentTime);
+    // Anchor the ramp to the current value, otherwise cancelling scheduled
+    // values can snap the gain before the fade starts.
+    master.gain.setValueAtTime(master.gain.value, ctx.currentTime);
     if (!playing) master.gain.linearRampToValueAtTime(0.10, ctx.currentTime + 1.4);
-    else master.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.8);
+    else {
+      master.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.8);
+      // Park the context once it has faded out. Muting only took the gain to
+      // zero: four oscillators and their LFOs kept the audio thread running.
+      suspendTimer.current = window.setTimeout(() => { ctxRef.current?.suspend(); }, 900);
+    }
     setPlaying((p) => !p);
   };
+
+  useEffect(() => () => {
+    if (suspendTimer.current) clearTimeout(suspendTimer.current);
+    ctxRef.current?.close();
+  }, []);
 
   return (
     <button className={`audio-toggle ${playing ? 'playing' : ''}`} onClick={toggle} aria-label="Toggle ambient sound">
       <span className="audio-bars"><span /><span /><span /><span /></span>
       <span className="audio-label">{playing ? 'Sound On' : 'Ambience'}</span>
     </button>
+  );
+}
+
+/* Page lock, ref-counted so one dialog closing as another opens can't leave the
+   page stuck locked or scrolling. */
+let pageLocks = 0;
+function lockPage() {
+  if (pageLocks++ === 0) {
+    lenisInstance?.stop();
+    document.documentElement.classList.add('modal-open');
+  }
+}
+function unlockPage() {
+  pageLocks = Math.max(0, pageLocks - 1);
+  if (pageLocks === 0) {
+    document.documentElement.classList.remove('modal-open');
+    lenisInstance?.start();
+  }
+}
+
+/* ─── Modal shell ───
+   Shared by every overlay on the page. Stops the smooth-scroll instance so the
+   chamber can't scroll away behind the dialog, closes on Escape, keeps Tab
+   inside the panel, and returns focus to whatever opened it. */
+function Modal({ onClose, overlayClass = 'modal-overlay', panelClass = 'modal', label, panelStyle, children }: {
+  onClose: () => void;
+  overlayClass?: string;
+  panelClass?: string;
+  label: string;
+  panelStyle?: React.CSSProperties;
+  children: React.ReactNode;
+}) {
+  const panelRef = useRef<HTMLDivElement>(null);
+  // Held in a ref so inline `onClose={() => setX(null)}` arrows at the call
+  // sites don't re-run the lock effect on every parent render.
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
+
+  useEffect(() => {
+    const restoreTo = document.activeElement as HTMLElement | null;
+    lockPage();
+
+    const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') { closeRef.current(); return; }
+      if (e.key !== 'Tab' || !panelRef.current) return;
+      const items = Array.from(panelRef.current.querySelectorAll<HTMLElement>(FOCUSABLE))
+        .filter(el => el.offsetParent !== null);
+      if (!items.length) { e.preventDefault(); return; }
+      const first = items[0], last = items[items.length - 1];
+      const active = document.activeElement;
+      if (e.shiftKey && (active === first || !panelRef.current.contains(active))) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && active === last) { e.preventDefault(); first.focus(); }
+    };
+    document.addEventListener('keydown', onKey);
+    panelRef.current?.focus();
+
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      unlockPage();
+      restoreTo?.focus?.();
+    };
+  }, []);
+
+  return (
+    <div className={overlayClass} onClick={() => closeRef.current()}>
+      <div
+        ref={panelRef}
+        className={panelClass}
+        style={panelStyle}
+        role="dialog"
+        aria-modal="true"
+        aria-label={label}
+        tabIndex={-1}
+        onClick={e => e.stopPropagation()}
+      >
+        {children}
+      </div>
+    </div>
+  );
+}
+
+/* ─── Confirm / Notice dialogs ───
+   These replace window.confirm and window.alert, which broke the spell of an
+   otherwise fully art-directed page. */
+type ConfirmRequest = {
+  title: string;
+  body: string;
+  confirmLabel: string;
+  danger?: boolean;
+  onConfirm: () => void | Promise<void>;
+};
+
+function ConfirmDialog({ request, onClose }: { request: ConfirmRequest; onClose: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const go = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      await request.onConfirm();
+      onClose();
+    } catch (e) {
+      // A rejected write (Firestore rules, offline) has to stay on screen —
+      // closing here would look exactly like success.
+      setError(e instanceof Error ? e.message : 'That did not go through. Try again.');
+      setBusy(false);
+    }
+  };
+  return (
+    <Modal onClose={busy ? () => {} : onClose} label={request.title} panelStyle={{ maxWidth: 420 }}>
+      <div className="modal-title">{request.title}</div>
+      <p className="modal-subtitle">{request.body}</p>
+      {error && <p className="form-error" role="alert">{error}</p>}
+      <div className="confirm-actions">
+        <button className="confirm-cancel" onClick={onClose} disabled={busy}>Cancel</button>
+        <button className={`confirm-go ${request.danger ? 'danger' : ''}`} onClick={go} disabled={busy}>
+          {busy ? 'Working...' : request.confirmLabel}
+        </button>
+      </div>
+    </Modal>
+  );
+}
+
+function NoticeDialog({ title, body, onClose }: { title: string; body: string; onClose: () => void }) {
+  return (
+    <Modal onClose={onClose} label={title} panelStyle={{ maxWidth: 420 }}>
+      <button className="modal-close" onClick={onClose} aria-label="Close dialog">×</button>
+      <div className="modal-title">{title}</div>
+      <p className="modal-subtitle">{body}</p>
+      <button className="submit-btn" onClick={onClose}>Understood</button>
+    </Modal>
   );
 }
 
@@ -376,15 +752,13 @@ function AuthModal({ mode, onUser, onClose }: { mode: 'login' | 'claim' | 'admin
   }, []);
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 420 }}>
-        <button className="modal-close" onClick={onClose}>×</button>
-        <div className="modal-title">{copy.title}</div>
-        <p className="modal-subtitle">{copy.sub}</p>
-        <div ref={btnRef} style={{ display: 'flex', justifyContent: 'center', minHeight: 44 }} />
-        {err && <p style={{ color: 'var(--signal)', fontSize: '0.82rem', textAlign: 'center', marginTop: '1rem' }}>{err}</p>}
-      </div>
-    </div>
+    <Modal onClose={onClose} label={copy.title} panelStyle={{ maxWidth: 420 }}>
+      <button className="modal-close" onClick={onClose} aria-label="Close dialog">×</button>
+      <div className="modal-title">{copy.title}</div>
+      <p className="modal-subtitle">{copy.sub}</p>
+      <div ref={btnRef} style={{ display: 'flex', justifyContent: 'center', minHeight: 44 }} />
+      {err && <p style={{ color: 'var(--signal)', fontSize: '0.82rem', textAlign: 'center', marginTop: '1rem' }} role="alert">{err}</p>}
+    </Modal>
   );
 }
 
@@ -460,20 +834,17 @@ function RegistrationModal({ onClose, onSuccess, count, preAuth }: {
 
   if (count >= MAX) {
     return (
-      <div className="modal-overlay" onClick={onClose}>
-        <div className="modal" onClick={e => e.stopPropagation()}>
-          <button className="modal-close" onClick={onClose}>×</button>
-          <div className="modal-title">The Chamber Is Sealed</div>
-          <p className="modal-subtitle">All 15 Founding Member seats have been claimed. The charter is complete.</p>
-        </div>
-      </div>
+      <Modal onClose={onClose} label="The Chamber Is Sealed">
+        <button className="modal-close" onClick={onClose} aria-label="Close dialog">×</button>
+        <div className="modal-title">The Chamber Is Sealed</div>
+        <p className="modal-subtitle">All 15 Founding Member seats have been claimed. The charter is complete.</p>
+      </Modal>
     );
   }
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal" onClick={e => e.stopPropagation()}>
-        <button className="modal-close" onClick={onClose}>×</button>
+    <Modal onClose={onClose} label="Claim your founding seat">
+      <button className="modal-close" onClick={onClose} aria-label="Close dialog">×</button>
 
         {step === 'auth' && (
           <>
@@ -506,7 +877,7 @@ function RegistrationModal({ onClose, onSuccess, count, preAuth }: {
         {step === 'form' && (
           <>
             <div className="modal-title">Claim Your Founding Seat</div>
-            <p className="modal-subtitle">Seat #{count + 1} of {MAX} — Once engraved, your name stands permanently.</p>
+            <p className="modal-subtitle">Seat #{count + 1} of {MAX}. Once engraved, your name stands permanently.</p>
 
             <div className="form-group">
               <label className="form-label">Full Name</label>
@@ -531,8 +902,7 @@ function RegistrationModal({ onClose, onSuccess, count, preAuth }: {
             </button>
           </>
         )}
-      </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -542,9 +912,11 @@ function ProfileEditorModal({ member, onClose, onUpdate, numberLabel, saveFn }: 
   const [grade, setGrade] = useState(member.grade);
   const [classGroup, setClassGroup] = useState(member.classGroup);
   const [bio, setBio] = useState(member.bio || '');
+  const [formError, setFormError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [animeResults, setAnimeResults] = useState<any[]>([]);
   const [searching, setSearching] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
   const [selectedAvatar, setSelectedAvatar] = useState<{ url: string; name: string } | null>(
     member.avatar ? { url: member.avatar, name: member.avatarName || 'Anime Character' } : null
   );
@@ -614,34 +986,38 @@ function ProfileEditorModal({ member, onClose, onUpdate, numberLabel, saveFn }: 
   const handleSaveCrop = () => {
     if (!rawImageSrc) return;
     setSaving(true);
+    setFormError(null);
     const img = new Image();
+    // Without this the modal could sit on "Saving..." forever if the file
+    // turned out not to be a decodable image.
+    img.onerror = () => { setSaving(false); setFormError('That image could not be read. Try a different file.'); };
     img.onload = () => {
       const canvas = document.createElement('canvas');
-      canvas.width = 256;
-      canvas.height = 256;
+      canvas.width = AVATAR_PX;
+      canvas.height = AVATAR_PX;
       const ctx = canvas.getContext('2d');
       if (ctx) {
         ctx.fillStyle = '#060b18';
-        ctx.fillRect(0, 0, 256, 256);
+        ctx.fillRect(0, 0, AVATAR_PX, AVATAR_PX);
 
-        const W = imageDims.W;
-        const H = imageDims.H;
-        let w_disp = 200;
-        let h_disp = 200;
-        if (W > H) {
-          w_disp = 200 * (W / H);
-        } else {
-          h_disp = 200 * (H / W);
-        }
+        const { W, H } = imageDims;
+        let w_disp = CROP_BOX_PX;
+        let h_disp = CROP_BOX_PX;
+        if (W > H) w_disp = CROP_BOX_PX * (W / H);
+        else h_disp = CROP_BOX_PX * (H / W);
 
-        const w_canvas = w_disp * zoom * 1.28;
-        const h_canvas = h_disp * zoom * 1.28;
-        const x_canvas = (100 + offset.x - (w_disp * zoom) / 2) * 1.28;
-        const y_canvas = (100 + offset.y - (h_disp * zoom) / 2) * 1.28;
-
-        ctx.drawImage(img, x_canvas, y_canvas, w_canvas, h_canvas);
-        const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.85);
-        setSelectedAvatar({ url: compressedDataUrl, name: uploadedFileName || 'Custom Upload' });
+        // The cropper is CROP_BOX_PX wide on screen; k rescales that geometry
+        // into the stored bitmap.
+        const k = AVATAR_PX / CROP_BOX_PX;
+        const half = CROP_BOX_PX / 2;
+        ctx.drawImage(
+          img,
+          (half + offset.x - (w_disp * zoom) / 2) * k,
+          (half + offset.y - (h_disp * zoom) / 2) * k,
+          w_disp * zoom * k,
+          h_disp * zoom * k,
+        );
+        setSelectedAvatar({ url: canvas.toDataURL('image/jpeg', AVATAR_QUALITY), name: uploadedFileName || 'Custom Upload' });
         setRawImageSrc(null);
       }
       setSaving(false);
@@ -649,24 +1025,42 @@ function ProfileEditorModal({ member, onClose, onUpdate, numberLabel, saveFn }: 
     img.src = rawImageSrc;
   };
 
+  /* Jikan rate-limits at a few requests a second, and this used to swallow
+     every failure into console.error, so a throttled or offline search just
+     looked like "no results". */
+  const searchAbort = useRef<AbortController | null>(null);
+  useEffect(() => () => searchAbort.current?.abort(), []);
+
   const searchAnime = async () => {
-    if (!searchQuery.trim()) return;
+    if (!searchQuery.trim() || searching) return;
+    searchAbort.current?.abort();
+    const ac = new AbortController();
+    searchAbort.current = ac;
     setSearching(true);
+    setSearchError(null);
     try {
-      const res = await fetch(`https://api.jikan.moe/v4/characters?q=${encodeURIComponent(searchQuery)}&limit=12`);
+      const res = await fetch(
+        `https://api.jikan.moe/v4/characters?q=${encodeURIComponent(searchQuery)}&limit=12`,
+        { signal: ac.signal },
+      );
+      if (res.status === 429) { setSearchError('Searching too fast. Wait a moment and try again.'); return; }
+      if (!res.ok) { setSearchError('The character service is unavailable right now.'); return; }
       const data = await res.json();
-      setAnimeResults(data.data || []);
+      const results = data.data || [];
+      setAnimeResults(results);
+      if (!results.length) setSearchError(`Nothing found for "${searchQuery}".`);
     } catch (err) {
-      console.error('Anime search failed:', err);
+      if ((err as Error).name !== 'AbortError') setSearchError('Search failed. Check your connection and try again.');
     } finally {
-      setSearching(false);
+      if (searchAbort.current === ac) setSearching(false);
     }
   };
 
   const [saving, setSaving] = useState(false);
 
   const handleSave = async () => {
-    if (!fullName || !grade || !classGroup) { alert('Name, grade, and class are required.'); return; }
+    if (!fullName || !grade || !classGroup) { setFormError('Name, grade, and class are all required.'); return; }
+    setFormError(null);
     setSaving(true);
     await (saveFn ?? updateMember)(member.email, {
       fullName, grade, classGroup, bio,
@@ -679,9 +1073,8 @@ function ProfileEditorModal({ member, onClose, onUpdate, numberLabel, saveFn }: 
   };
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal wide" onClick={e => e.stopPropagation()}>
-        <button className="modal-close" onClick={onClose}>×</button>
+    <Modal onClose={onClose} panelClass="modal wide" label="Edit your profile">
+        <button className="modal-close" onClick={onClose} aria-label="Close dialog">×</button>
         <div className="modal-title">Your Profile</div>
         <p className="modal-subtitle">{numberLabel ?? `Founding Member #${member.memberNumber}`}</p>
 
@@ -945,6 +1338,7 @@ function ProfileEditorModal({ member, onClose, onUpdate, numberLabel, saveFn }: 
                     </div>
                   )}
                   {animeResults.length === 0 && searching && <div className="anime-loading">Searching dimensions...</div>}
+                  {searchError && <p className="form-error" role="alert">{searchError}</p>}
                 </>
               )}
             </div>
@@ -963,11 +1357,11 @@ function ProfileEditorModal({ member, onClose, onUpdate, numberLabel, saveFn }: 
           </div>
         </div>
 
+        {formError && <p className="form-error" role="alert">{formError}</p>}
         <button className="submit-btn" onClick={handleSave} disabled={saving} style={{ marginTop: '2rem' }}>
           {saving ? 'Saving...' : 'Save Profile'}
         </button>
-      </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -982,9 +1376,9 @@ function FounderDetailModal({ member, displayTitle, onClose, isAdmin, onAdminEdi
   onDelete: (id: string, name: string) => void;
 }) {
   return (
-    <div className="detail-overlay" onClick={onClose}>
-      <div className="detail-card" onClick={e => e.stopPropagation()} style={{ textAlign: 'center' }}>
-        <button className="modal-close" onClick={onClose}>×</button>
+    <Modal onClose={onClose} overlayClass="detail-overlay" panelClass="detail-card"
+      label={`${member.fullName} · dossier`} panelStyle={{ textAlign: 'center' }}>
+        <button className="modal-close" onClick={onClose} aria-label="Close dossier">×</button>
 
         {member.avatar ? (
           <img src={member.avatar} className="detail-avatar" alt={member.firstName} style={{ margin: '0 auto 1rem', display: 'block' }} />
@@ -1031,8 +1425,7 @@ function FounderDetailModal({ member, displayTitle, onClose, isAdmin, onAdminEdi
             </div>
           </div>
         )}
-      </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -1045,8 +1438,8 @@ function Certificate({ member, onClose }: { member: Member; onClose: () => void 
   }, []);
 
   return (
-    <div className="certificate-overlay" onClick={onClose}>
-      <div className="certificate" onClick={e => e.stopPropagation()}>
+    <Modal onClose={onClose} overlayClass="certificate-overlay" panelClass="certificate"
+      label={`Founding charter for ${member.fullName}`}>
         <div className="cert-ornament">◆ &nbsp; Founding Charter &nbsp; ◆</div>
         <div className="cert-title">This certifies that</div>
         <div className="cert-name">{member.fullName}</div>
@@ -1055,136 +1448,211 @@ function Certificate({ member, onClose }: { member: Member; onClose: () => void 
           {SCHOOL} Model United Nations Club
         </div>
         <div className="cert-seal">◆</div>
-        <div className="cert-footer">Established 2026 — The Charter Remembers</div>
+        <div className="cert-footer">Established 2026 · The Charter Remembers</div>
         <button className="cert-close-btn" onClick={onClose}>Close</button>
-      </div>
-    </div>
+    </Modal>
   );
 }
 
 /* ─── Value Proposition Section ─── */
 function ValueSection() {
-  const cards = [
-    { title: 'Your Name, On This Wall', text: 'Permanently listed in the Hall of Founders on this website. Not a temporary badge, but a lasting record of your leadership.', featured: true },
+  const rows = [
+    { title: 'Your Name, On This Wall', text: 'Permanently listed in the Hall of Founders on this website. Not a temporary badge, but a lasting record of your leadership.' },
     { title: 'College Application Ready', text: 'Founding Member status is verifiable and can be listed on Common App, UCAS, or any university portfolio as a leadership credential.' },
     { title: 'You Helped Build This', text: 'First-generation members define the club\'s culture, traditions, and direction. Your voice shapes what this becomes.' },
   ];
 
   return (
     <section className="section" id="value">
-      <div className="section-eyebrow">The Privilege</div>
+      <span className="section-beam" aria-hidden="true" />
+      <div className="section-eyebrow"><Decrypt text="The Privilege" /></div>
       <h2 className="section-title">What Does <span className="gold-accent">Founding Member</span> Mean?</h2>
-      <div className="cards-grid">
-        {cards.map((c, i) => (<ValueCard key={i} {...c} />))}
+      <div className="ledger">
+        {rows.map((r, i) => (
+          <div className="ledger-row" key={i}>
+            <span className="ledger-mark" aria-hidden="true">◆</span>
+            <h3 className="ledger-title">{r.title}</h3>
+            <p className="ledger-text">{r.text}</p>
+          </div>
+        ))}
       </div>
     </section>
   );
 }
 
-function ValueCard({ title, text, featured }: { title: string; text: string; featured?: boolean }) {
-  const [tilting, setTilting] = useState(false);
-
-  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
-    const card = e.currentTarget;
-    const rect = card.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
-    const rotateX = ((y - rect.height / 2) / rect.height) * -7;
-    const rotateY = ((x - rect.width / 2) / rect.width) * 7;
-    card.style.transform = `perspective(1100px) rotateX(${rotateX}deg) rotateY(${rotateY}deg) translateZ(8px)`;
-    card.style.setProperty('--mx', `${(x / rect.width) * 100}%`);
-    card.style.setProperty('--my', `${(y / rect.height) * 100}%`);
-    setTilting(true);
-  };
-  const handleMouseLeave = (e: React.MouseEvent<HTMLDivElement>) => { e.currentTarget.style.transform = ''; setTilting(false); };
-
-  return (
-    <div
-      className={`value-card ${featured ? 'featured' : ''} ${tilting ? 'tilting' : ''}`}
-      onMouseMove={handleMouseMove}
-      onMouseLeave={handleMouseLeave}
-    >
-      <div className="card-title">{title}</div>
-      <div className="card-text">{text}</div>
-    </div>
-  );
-}
-
 /* ─── Hall of Founders ─── */
-/* Seat coordinates (in %) evenly spaced along a ROUNDED U / horseshoe (opens at top).
-   Rounded corners spread the seats smoothly so they never bunch at the 90° turns. */
-function uSeatPositions(n: number) {
-  const left = 22, right = 78, top = 18, bottom = 88, r = 11;
-  const arm = (bottom - r) - top;        // vertical arm length
-  const corner = (Math.PI / 2) * r;      // quarter-circle arc length
-  const base = (right - r) - (left + r); // straight bottom run
-  const total = arm + corner + base + corner + arm;
-  const pts: { x: number; y: number }[] = [];
-  for (let i = 0; i < n; i++) {
-    let d = total * ((i + 0.5) / n);
-    let x: number, y: number;
-    if (d <= arm) {                                   // left arm (down)
-      x = left; y = top + d;
-    } else if (d <= arm + corner) {                   // bottom-left corner
-      const ang = Math.PI - (d - arm) / r;            // 180° → 90°
-      x = (left + r) + r * Math.cos(ang);
-      y = (bottom - r) + r * Math.sin(ang);
-    } else if (d <= arm + corner + base) {            // bottom run
-      x = (left + r) + (d - arm - corner); y = bottom;
-    } else if (d <= arm + corner + base + corner) {   // bottom-right corner
-      const ang = (Math.PI / 2) - (d - arm - corner - base) / r; // 90° → 0°
-      x = (right - r) + r * Math.cos(ang);
-      y = (bottom - r) + r * Math.sin(ang);
-    } else {                                          // right arm (up)
-      x = right; y = (bottom - r) - (d - arm - corner - base - corner);
-    }
-    pts.push({ x, y });
-  }
-  return pts;
-}
 type EnrichedMember = Member & { displayTitle: string };
 
-function Seat({ member, isMain, onClick, selected, editing }: {
-  member: EnrichedMember | null;
+/* ─── Chamber geometry ───
+   A true horseshoe: two straight arms joined by a semicircular bend, drawn as
+   an architect's plan. Coordinates live in viewBox units and the container is
+   locked to the same aspect ratio, so a station at (x, y) maps to
+   (x/w, y/h) in percent with no letterboxing to correct for. */
+/* `inset` seats the delegate inside the bench, the way someone sits at a desk
+   rather than on top of it; `tick0/tick1/num` place the station rule and its
+   engraved numeral further into the floor. They live on the geometry because a
+   viewBox unit is worth different pixels in the wide and tall rooms, and the
+   portrait has to clear the bench line in both. */
+type ChamberGeo = {
+  w: number; h: number; armL: number; armR: number; armTop: number; armBottom: number;
+  r: number; headY: number; seat: number;
+  inset: number; tick0: number; tick1: number; num: number;
+};
+
+const CHAMBER_WIDE: ChamberGeo = {
+  w: 1000, h: 1000, armL: 130, armR: 870, armTop: 150, armBottom: 600, r: 370, headY: 88, seat: 96,
+  inset: 44, tick0: 88, tick1: 114, num: 142,
+};
+/* Phones get a taller room: longer arms buy perimeter, so fifteen stations
+   still breathe at 320px wide. The portrait is proportionally much larger
+   there, so it stays on the bench and only the numeral steps inside. */
+const CHAMBER_TALL: ChamberGeo = {
+  w: 1000, h: 1400, armL: 150, armR: 850, armTop: 130, armBottom: 940, r: 350, headY: 78, seat: 132,
+  inset: 0, tick0: 78, tick1: 104, num: 132,
+};
+
+/* (bx, by) is the point on the bench itself; (x, y) is where the delegate sits,
+   stepped inward along the normal. */
+type Station = { x: number; y: number; bx: number; by: number; nx: number; ny: number };
+
+/* Walks the bench from the top of the left arm, down and around the bend, back
+   up the right arm, and drops `n` stations at even arc-length intervals. */
+function chamberStations(geo: ChamberGeo, n: number): Station[] {
+  // Spacing is measured along the path the delegates actually sit on, which is
+  // inboard of the bench. Distributing along the bench instead packs the seats
+  // together around the bend, where the inset costs the most arc length.
+  const seatL = geo.armL + geo.inset;
+  const seatR = geo.armR - geo.inset;
+  const seatR_ = geo.r - geo.inset;
+  const arm = geo.armBottom - geo.armTop;
+  const bend = Math.PI * seatR_;
+  const total = arm + bend + arm;
+  const cx = (geo.armL + geo.armR) / 2;
+  const out: Station[] = [];
+  for (let i = 0; i < n; i++) {
+    const d = total * ((i + 0.5) / n);
+    let x: number, y: number, nx: number, ny: number;
+    if (d <= arm) {
+      x = seatL; y = geo.armTop + d; nx = 1; ny = 0;
+    } else if (d <= arm + bend) {
+      // α sweeps π → 0, tracing the bend through its lowest point.
+      const a = Math.PI * (1 - (d - arm) / bend);
+      x = cx + seatR_ * Math.cos(a);
+      y = geo.armBottom + seatR_ * Math.sin(a);
+      nx = -Math.cos(a); ny = -Math.sin(a);
+    } else {
+      x = seatR; y = geo.armBottom - (d - arm - bend); nx = -1; ny = 0;
+    }
+    out.push({ x, y, nx, ny, bx: x - nx * geo.inset, by: y - ny * geo.inset });
+  }
+  return out;
+}
+
+/* Fracture lines for the sealing moment: jagged runs striking out from the
+   centre of the floor. Seeded rather than random so the same charter always
+   cracks the same way, and so React re-renders don't reshuffle them mid-flight. */
+function sealCracks(cx: number, cy: number, count: number, maxR: number, seed = 20260726) {
+  let s = seed;
+  const rnd = () => (s = (s * 1664525 + 1013904223) % 4294967296) / 4294967296;
+  const paths: string[] = [];
+  for (let i = 0; i < count; i++) {
+    const base = (i / count) * Math.PI * 2 + (rnd() - 0.5) * 0.35;
+    const reach = maxR * (0.5 + rnd() * 0.5);
+    const segs = 4 + Math.floor(rnd() * 3);
+    let d = `M ${cx.toFixed(1)},${cy.toFixed(1)}`;
+    for (let k = 1; k <= segs; k++) {
+      const r = (reach * k) / segs;
+      const a = base + (rnd() - 0.5) * 0.55;
+      d += ` L ${(cx + Math.cos(a) * r).toFixed(1)},${(cy + Math.sin(a) * r).toFixed(1)}`;
+    }
+    paths.push(d);
+  }
+  return paths;
+}
+
+const benchPath = (g: ChamberGeo, inset = 0) =>
+  `M ${g.armL + inset},${g.armTop + inset} L ${g.armL + inset},${g.armBottom} ` +
+  `A ${g.r - inset},${g.r - inset} 0 0 0 ${g.armR - inset},${g.armBottom} ` +
+  `L ${g.armR - inset},${g.armTop + inset}`;
+
+function useChamberGeo(): ChamberGeo {
+  const query = '(max-width: 720px)';
+  const [tall, setTall] = useState(() => typeof window !== 'undefined' && window.matchMedia(query).matches);
+  useEffect(() => {
+    const mq = window.matchMedia(query);
+    const on = () => setTall(mq.matches);
+    mq.addEventListener('change', on);
+    return () => mq.removeEventListener('change', on);
+  }, []);
+  return tall ? CHAMBER_TALL : CHAMBER_WIDE;
+}
+
+function Seat({ member, isMain, seatNo, onClick, selected, editing }: {
+  member: EnrichedMember;
   isMain?: boolean;
+  seatNo?: number;
   onClick: (m: EnrichedMember) => void;
   selected?: boolean;
   editing?: boolean;
 }) {
-  if (!member) {
-    return (
-      <div className={`seat vacant ${isMain ? 'main' : ''}`}>
-        <div className="seat-avatar vacant">{isMain ? '★' : ''}</div>
-        <div className="seat-label">{isMain ? 'Main Founder' : 'Vacant'}</div>
-      </div>
-    );
-  }
   const bestie = member.bestieColor;
   return (
     <button
-      className={`seat filled ${isMain ? 'main' : ''} ${selected ? 'selected' : ''} ${editing ? 'editing' : ''} ${bestie ? 'has-bestie' : ''}`}
+      className={`seat ${isMain ? 'is-head' : ''} ${selected ? 'selected' : ''} ${bestie ? 'has-bond' : ''}`}
       onClick={() => onClick(member)}
-      title={editing ? `Select ${member.firstName}` : `${member.fullName} — view dossier`}
-      style={bestie ? ({ ['--bestie' as any]: bestie }) : undefined}
+      title={editing ? `Select ${member.firstName}` : `${member.fullName} · read dossier`}
+      aria-label={`${member.fullName}, ${isMain ? 'Head of Council' : `seat ${seatNo}`}`}
+      style={bestie ? ({ ['--bond' as any]: bestie }) : undefined}
     >
-      {member.avatar
-        ? <img src={member.avatar} className="seat-avatar" alt={member.firstName} />
-        : <div className="seat-avatar placeholder">◆</div>}
-      {bestie && <span className="bestie-badge" style={{ background: bestie }}>♥ bestie</span>}
-      <div className="seat-label">
-        {isMain && '★ '}<span className="seat-name">{member.firstName}</span>
-        <span className="seat-grade">{isMain ? 'Head of Council' : member.grade}</span>
-      </div>
+      <span className="seat-portrait">
+        {member.avatar
+          ? <img src={member.avatar} className="seat-avatar" alt="" />
+          : <span className="seat-avatar is-initial" aria-hidden="true">{(member.firstName || '?').charAt(0).toUpperCase()}</span>}
+        {isMain && <i className="seat-crown" aria-hidden="true">★</i>}
+        {bestie && <i className="seat-bond" style={{ background: bestie }} aria-hidden="true">♥</i>}
+      </span>
+      <span className="seat-plate">
+        <span className="seat-name">{isMain ? member.fullName : member.firstName}</span>
+        {isMain && <span className="seat-role">Head of Council</span>}
+      </span>
     </button>
   );
 }
 
-function HallOfFounders({ members, onSeatClick, isAdmin }: { members: EnrichedMember[]; onSeatClick: (m: EnrichedMember) => void; isAdmin: boolean }) {
-  const { ref } = useInView(0.1);
+/* A seat the charter allows but nobody holds yet. It stays on the plan as a
+   numbered outline, which is what makes "11 of 15" legible as a room rather
+   than a statistic. */
+function VacantSeat({ seatNo, onClaim }: { seatNo: number; onClaim?: () => void }) {
+  return (
+    <button
+      className={`seat is-vacant ${onClaim ? 'claimable' : ''}`}
+      onClick={onClaim}
+      disabled={!onClaim}
+      title={onClaim ? `Seat ${seatNo} · yours to claim` : `Seat ${seatNo} · unclaimed`}
+      aria-label={onClaim ? `Claim seat ${seatNo}` : `Seat ${seatNo}, unclaimed`}
+    >
+      <span className="seat-portrait">
+        {/* Left empty on purpose: the floor already carries this seat's numeral. */}
+        <span className="seat-avatar is-empty" aria-hidden="true" />
+      </span>
+      <span className="seat-plate">
+        <span className="seat-name">{onClaim ? 'Claim' : 'Vacant'}</span>
+      </span>
+    </button>
+  );
+}
+
+function HallOfFounders({ members, onSeatClick, isAdmin, onClaimSeat }: {
+  members: EnrichedMember[];
+  onSeatClick: (m: EnrichedMember) => void;
+  isAdmin: boolean;
+  onClaimSeat?: () => void;
+}) {
   const complete = members.length >= MAX;
   const mains = members.filter(m => m.isMainFounder);
   const others = members.filter(m => !m.isMainFounder);
   const remaining = MAX - members.length;
+  const geo = useChamberGeo();
 
   const [editMode, setEditMode] = useState<'none' | 'arrange' | 'bestie'>('none');
   const [selected, setSelected] = useState<string[]>([]);
@@ -1192,16 +1660,108 @@ function HallOfFounders({ members, onSeatClick, isAdmin }: { members: EnrichedMe
   // Leave edit mode if admin logs out.
   useEffect(() => { if (!isAdmin) { setEditMode('none'); setSelected([]); } }, [isAdmin]);
 
-  const headSpacing = 17; // % between adjacent heads
-
   // Order the non-main members: the admin's explicit `seat` wins, otherwise join order.
   const byJoin = [...others].sort((a, b) => a.joinedAt.localeCompare(b.joinedAt));
   const joinIndex = new Map(byJoin.map((m, i) => [m.id, i] as const));
   const orderKey = (m: EnrichedMember) => (typeof m.seat === 'number' ? m.seat : (joinIndex.get(m.id) ?? 0));
   const orderedOthers = [...others].sort((a, b) => orderKey(a) - orderKey(b));
-  // The horseshoe sizes itself to exactly however many people there are —
-  // evenly spaced, no vacant seats, nobody hidden.
-  const positions = uSeatPositions(orderedOthers.length);
+
+  /* The bench always carries every seat the charter allows, so the room shows
+     its own vacancies instead of quietly resizing around them. */
+  const benchSeats = Math.max(orderedOthers.length, MAX - mains.length);
+  const stations = chamberStations(geo, benchSeats);
+  const headXs = mains.map((_, i) =>
+    (geo.armL + geo.armR) / 2 + (i - (mains.length - 1) / 2) * (geo.seat * 1.4));
+
+  /* Where every seated founder physically sits, so a bond can be drawn between
+     two of them as a chord across the floor. */
+  const posById = new Map<string, { x: number; y: number }>();
+  mains.forEach((m, i) => posById.set(m.id, { x: headXs[i], y: geo.headY + geo.seat * 0.42 }));
+  orderedOthers.forEach((m, i) => { const s = stations[i]; if (s) posById.set(m.id, { x: s.x, y: s.y }); });
+
+  const bonds: { key: string; d: string; color: string }[] = [];
+  const pairSeen = new Set<string>();
+  members.forEach(m => {
+    if (!m.bestieWith || !m.bestieColor) return;
+    const key = [m.id, m.bestieWith].sort().join('|');
+    if (pairSeen.has(key)) return;
+    const a = posById.get(m.id);
+    const b = posById.get(m.bestieWith);
+    if (!a || !b) return;
+    pairSeen.add(key);
+    const fx = (geo.armL + geo.armR) / 2, fy = geo.armBottom * 0.88;
+    const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+    // Bowed toward the middle of the floor so it reads as crossing the room
+    // rather than cutting a straight line through the furniture.
+    bonds.push({
+      key, color: m.bestieColor,
+      d: `M ${a.x},${a.y} Q ${mx + (fx - mx) * 0.55},${my + (fy - my) * 0.55} ${b.x},${b.y}`,
+    });
+  });
+
+  /* ─── The chamber's entrance, and the sealing ───
+     Owned here rather than in useScrollFX because the seats become new DOM
+     nodes the moment the roster loads; a timeline built at app mount would sit
+     there animating the placeholder stations it captured.
+     Every tween is immediateRender:false, so until this actually plays the room
+     rests fully drawn instead of waiting on an animation to become visible. */
+  const chamberRef = useRef<HTMLDivElement>(null);
+  const ceremonyDone = useRef(false);
+  const floorCx = (geo.armL + geo.armR) / 2;
+  const floorCy = (geo.armTop + geo.armBottom + geo.r) / 2;
+  const cracks = complete ? sealCracks(floorCx, floorCy, 14, geo.r * 0.95) : [];
+  const rosterKey = `${benchSeats}|${mains.map(m => m.id).join()}|${orderedOthers.map(m => m.id).join()}|${complete}`;
+
+  useEffect(() => {
+    if (ceremonyDone.current) return;
+    const el = chamberRef.current;
+    if (!el) return;
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+
+    const ctx = gsap.context(() => {
+      const tl = gsap.timeline({ paused: true, defaults: { immediateRender: false } });
+
+      tl.fromTo('.plan-bench', { strokeDasharray: 1, strokeDashoffset: 1 },
+          { strokeDashoffset: 0, duration: 1.6, ease: 'power3.out' })
+        .fromTo('.plan-echo, .plan-tick', { autoAlpha: 0 }, { autoAlpha: 1, duration: 0.8 }, '-=1.0')
+        .fromTo('.plan-numeral', { autoAlpha: 0 }, { autoAlpha: 1, duration: 0.55, stagger: 0.022 }, '-=0.8')
+        // Seats arrive in protocol order, down the left arm and around the bend.
+        // Animated on .seat and never on .seat-station, whose translate(-50%,-50%)
+        // is the only thing centring it on the bench.
+        .fromTo('.seat', { autoAlpha: 0, y: 14, scale: 0.9 },
+          { autoAlpha: 1, y: 0, scale: 1, duration: 0.62, ease: 'power3.out', stagger: 0.038 }, '-=0.85')
+        .fromTo('.chamber-mark-inner', { autoAlpha: 0 }, { autoAlpha: 1, duration: 0.7 }, '-=0.4')
+        .fromTo('.plan-bond', { autoAlpha: 0 }, { autoAlpha: 0.55, duration: 0.8 }, '-=0.3');
+
+      if (complete) {
+        /* THE SEAL. The bench flares white, a shock rolls out from the centre,
+           the floor fractures, and the mark stamps down into it. The fractures
+           don't heal: they bank down to a permanent etch. */
+        tl.addLabel('seal', '-=0.2')
+          .to('.plan-bench', { stroke: '#eaf2ff', duration: 0.1 }, 'seal')
+          .fromTo('.seal-flash', { autoAlpha: 0 }, { autoAlpha: 1, duration: 0.1 }, 'seal')
+          .fromTo('.seal-wave', { attr: { r: 6 }, autoAlpha: 0.85 },
+            { attr: { r: geo.r * 1.02 }, autoAlpha: 0, duration: 1.15, ease: 'power2.out' }, 'seal')
+          .fromTo('.seal-crack-glow', { strokeDashoffset: 1, autoAlpha: 0.9 },
+            { strokeDashoffset: 0, duration: 0.42, ease: 'power2.out', stagger: 0.03 }, 'seal+=0.04')
+          .fromTo('.seal-crack', { strokeDashoffset: 1, autoAlpha: 1 },
+            { strokeDashoffset: 0, duration: 0.4, ease: 'power2.out', stagger: 0.03 }, 'seal+=0.06')
+          .fromTo('.chamber-mark-inner', { scale: 1.65 },
+            { scale: 1, duration: 0.8, ease: 'power4.out' }, 'seal')
+          .to('.seal-flash', { autoAlpha: 0, duration: 0.9, ease: 'power2.out' }, 'seal+=0.1')
+          .to('.plan-bench', { stroke: 'var(--azure-bright)', duration: 0.9 }, 'seal+=0.12')
+          .to('.seal-crack-glow', { autoAlpha: 0, duration: 1.0 }, 'seal+=0.55')
+          .to('.seal-crack', { autoAlpha: 0.2, duration: 1.1 }, 'seal+=0.6');
+      }
+
+      ScrollTrigger.create({
+        trigger: el, start: 'top 85%', once: true,
+        onEnter: () => { ceremonyDone.current = true; tl.play(); },
+      });
+    }, el);
+
+    return () => ctx.revert();
+  }, [rosterKey, complete, geo]);
 
   const handleSeatClick = (m: EnrichedMember) => {
     if (editMode === 'none' || !isAdmin) { onSeatClick(m); return; }
@@ -1243,10 +1803,12 @@ function HallOfFounders({ members, onSeatClick, isAdmin }: { members: EnrichedMe
 
   const editing = editMode !== 'none';
 
+  /* War-table tilt — the chamber leans subtly toward the cursor (desktop only) */
   return (
-    <section className="hall" id="hall" ref={ref}>
+    <section className="hall" id="hall">
       <div className="hall-inner">
-        <div className="section-eyebrow">The Charter</div>
+        <span className="section-beam" aria-hidden="true" />
+        <div className="section-eyebrow"><Decrypt text="The Charter" /></div>
         <h2 className="section-title">Hall of <span className="gold-accent">Founders</span></h2>
         <p className="hall-subtitle">"These students chose to lead before the room was full."</p>
         <div className="hall-divider" />
@@ -1274,26 +1836,89 @@ function HallOfFounders({ members, onSeatClick, isAdmin }: { members: EnrichedMe
           </div>
         )}
 
-        <div className={`hall-chamber ${complete ? 'complete' : ''} ${editing ? 'editing' : ''}`}>
-          <div className="chamber-floor" />
-          <div className="chamber-emblem">◆<span>The Council</span></div>
+        <div
+          ref={chamberRef}
+          className={`chamber ${complete ? 'sealed' : ''} ${editing ? 'editing' : ''}`}
+          style={{ aspectRatio: `${geo.w} / ${geo.h}` }}
+        >
+          <svg className="chamber-plan" viewBox={`0 0 ${geo.w} ${geo.h}`} aria-hidden="true" focusable="false">
+            <path className="plan-floor" d={`${benchPath(geo)} Z`} />
+            {/* Concentric guides, kept inboard of the numeral band so they
+                never run through a seat number. */}
+            <path className="plan-echo" d={benchPath(geo, 192)} />
+            <path className="plan-echo is-faint" d={benchPath(geo, 262)} />
+            {/* Station marks: a rule struck inward off the bench, and the seat
+                number engraved on the floor beside it. Keeping the numeral here
+                rather than on the nameplate is both truer to a plan drawing and
+                what lets the stations sit close together without crowding. */}
+            {stations.map((s, i) => (
+              <g key={i} className="plan-station">
+                <line
+                  className="plan-tick"
+                  x1={s.bx + s.nx * geo.tick0} y1={s.by + s.ny * geo.tick0}
+                  x2={s.bx + s.nx * geo.tick1} y2={s.by + s.ny * geo.tick1}
+                />
+                <text
+                  className="plan-numeral"
+                  x={s.bx + s.nx * geo.num} y={s.by + s.ny * geo.num}
+                  textAnchor="middle" dominantBaseline="central"
+                >{i + 1}</text>
+              </g>
+            ))}
+            <path className="plan-bench" d={benchPath(geo)} pathLength={1} />
+            {bonds.map(b => (
+              <path key={b.key} className="plan-bond" d={b.d} style={{ stroke: b.color }} />
+            ))}
 
-          {/* Head of the U — Main Founder(s) only; nothing shown if there is none */}
-          {mains.map((m, i) => {
-            const x = 50 + (i - (mains.length - 1) / 2) * headSpacing;
-            return (
-              <div className="seat-wrap is-main" key={m.id} style={{ left: `${x}%`, top: '8%' }}>
-                <Seat member={m} isMain onClick={handleSeatClick} selected={selected.includes(m.id)} editing={editing} />
-              </div>
-            );
-          })}
+            {complete && (
+              <g className="seal-fx">
+                <path className="seal-flash" d={`${benchPath(geo)} Z`} />
+                <circle className="seal-wave" cx={floorCx} cy={floorCy} r={6} />
+                {cracks.map((d, i) => (
+                  <path key={`glow-${i}`} className="seal-crack-glow" d={d} pathLength={1} strokeDasharray={1} strokeDashoffset={1} />
+                ))}
+                {cracks.map((d, i) => (
+                  <path key={`crack-${i}`} className="seal-crack" d={d} pathLength={1} strokeDasharray={1} strokeDashoffset={1} />
+                ))}
+              </g>
+            )}
+          </svg>
 
-          {/* Perimeter — exactly the non-main members, evenly spaced, no vacancies */}
-          {orderedOthers.map((m, i) => {
-            const p = positions[i];
+          <div
+            className="chamber-mark"
+            aria-hidden="true"
+            /* Centred on the enclosed floor, which sits lower than the box itself. */
+            style={{ top: `${((geo.armTop + geo.armBottom + geo.r) / 2 / geo.h) * 100}%` }}
+          >
+            {/* Inner wrapper so the seal can scale the mark without fighting the
+                translate(-50%,-50%) that centres it. */}
+            <span className="chamber-mark-inner">
+              <span className="chamber-mark-glyph">◆</span>
+              <span className="chamber-mark-text">{complete ? 'Sealed' : 'The Council'}</span>
+            </span>
+          </div>
+
+          {mains.map((m, i) => (
+            <div
+              className="seat-station is-head"
+              key={m.id}
+              style={{ left: `${(headXs[i] / geo.w) * 100}%`, top: `${(geo.headY / geo.h) * 100}%` }}
+            >
+              <Seat member={m} isMain onClick={handleSeatClick} selected={selected.includes(m.id)} editing={editing} />
+            </div>
+          ))}
+
+          {stations.map((s, i) => {
+            const m = orderedOthers[i];
             return (
-              <div className="seat-wrap seat-movable" key={m.id} style={{ left: `${p.x}%`, top: `${p.y}%` }}>
-                <Seat member={m} onClick={handleSeatClick} selected={selected.includes(m.id)} editing={editing} />
+              <div
+                className="seat-station"
+                key={m ? m.id : `vacant-${i}`}
+                style={{ left: `${(s.x / geo.w) * 100}%`, top: `${(s.y / geo.h) * 100}%` }}
+              >
+                {m
+                  ? <Seat member={m} seatNo={i + 1} onClick={handleSeatClick} selected={selected.includes(m.id)} editing={editing} />
+                  : <VacantSeat seatNo={i + 1} onClaim={editing ? undefined : onClaimSeat} />}
               </div>
             );
           })}
@@ -1301,7 +1926,10 @@ function HallOfFounders({ members, onSeatClick, isAdmin }: { members: EnrichedMe
 
         {complete
           ? <div className="complete-banner">◆ The Council is Complete ◆</div>
-          : <p className="chamber-hint">{remaining} seat{remaining !== 1 ? 's' : ''} still open in the chamber — click any name to view their dossier.</p>}
+          : <p className="chamber-hint">
+              {remaining} seat{remaining !== 1 ? 's' : ''} still unclaimed.{' '}
+              {onClaimSeat ? 'Take one, or open any founder to read their dossier.' : 'Open any founder to read their dossier.'}
+            </p>}
       </div>
     </section>
   );
@@ -1326,7 +1954,8 @@ function AboutSection() {
 
   return (
     <section className="section about-section" id="about">
-      <div className="section-eyebrow">The Mission</div>
+      <span className="section-beam" aria-hidden="true" />
+      <div className="section-eyebrow"><Decrypt text="The Mission" /></div>
       <h2 className="section-title">What Is <span className="gold-accent">Model United Nations</span>?</h2>
       <p className="about-intro">
         Model United Nations is where students stop being students and start being statesmen.
@@ -1343,15 +1972,15 @@ function AboutSection() {
 
       <div className="stats-row" ref={statsRef.ref}>
         <div className="stat-item">
-          <div className="stat-number">{stat1.value}</div>
+          <div className="stat-number"><span ref={stat1.ref}>0</span></div>
           <div className="stat-label">UN Member Nations</div>
         </div>
         <div className="stat-item">
-          <div className="stat-number">{stat2.value}K+</div>
+          <div className="stat-number"><span ref={stat2.ref}>0</span>K+</div>
           <div className="stat-label">Youth Delegates Globally</div>
         </div>
         <div className="stat-item">
-          <div className="stat-number">{stat3.value}M+</div>
+          <div className="stat-number"><span ref={stat3.ref}>0</span>M+</div>
           <div className="stat-label">Resolutions Debated</div>
         </div>
       </div>
@@ -1359,7 +1988,7 @@ function AboutSection() {
       <div className="pull-quote">
         Education is the most powerful weapon which you can use to change the world.
       </div>
-      <div className="quote-attr">— Nelson Mandela</div>
+      <div className="quote-attr">Nelson Mandela</div>
     </section>
   );
 }
@@ -1392,22 +2021,17 @@ function useScrollFX() {
       gsap.to('.scroll-indicator', { opacity: 0, ease: 'none', scrollTrigger: { trigger: '.hero', start: 'top top', end: '14% top', scrub: true } });
       gsap.to('.torch', { y: -120, opacity: 0, ease: 'none', scrollTrigger: heroScrub });
 
-      // Scroll-scrubbed reveal: each element rises + fades IN as it enters the bottom,
-      // stays fully visible through the middle, then SWIPES AWAY (up + fade) as it
-      // approaches the top. Tied to scroll → visible in both directions, reverses on scroll up.
+      // Scroll-scrubbed reveal: each element rises + fades IN as it enters the
+      // bottom, then stays put. There used to be a matching swipe-out as the
+      // element approached the top, which meant scrolling back to re-read
+      // something faded it away from you.
       const reveal = (targets: any, trigger: Element | string, opts: { y?: number; stagger?: any } = {}) => {
         const { y = 50, stagger = 0 } = opts;
         const items = gsap.utils.toArray<HTMLElement>(targets);
         if (!items.length) return;
-        // IN — from below the fold until it's comfortably in view
         gsap.fromTo(items, { autoAlpha: 0, y }, {
           autoAlpha: 1, y: 0, ease: 'power2.out', stagger,
           scrollTrigger: { trigger, start: 'top 90%', end: 'top 60%', scrub: 0.6 },
-        });
-        // OUT — swipe up + fade only as it actually leaves the top
-        gsap.fromTo(items, { autoAlpha: 1, y: 0 }, {
-          autoAlpha: 0, y: -(y * 0.9), ease: 'power2.in', stagger, immediateRender: false,
-          scrollTrigger: { trigger, start: 'top 16%', end: 'top -18%', scrub: 0.6 },
         });
       };
 
@@ -1415,22 +2039,52 @@ function useScrollFX() {
       gsap.utils.toArray<HTMLElement>('.section-eyebrow, .about-intro, .hall-subtitle').forEach((el) =>
         reveal(el, el, { y: 26 }));
 
-      reveal('.value-card', '.cards-grid',   { y: 64, stagger: 0.08 });
+      reveal('.ledger-row', '.ledger',       { y: 44, stagger: 0.1 });
       reveal('.pillar',     '.pillars',      { y: 48, stagger: 0.1 });
       reveal('.stat-item',  '.stats-row',    { y: 44, stagger: 0.1 });
-      // Seats rise from the centre outward so both sides reveal evenly (no slow side).
-      reveal('.seat', '.hall-chamber', { y: 30, stagger: { each: 0.025, from: 'center' } });
       reveal('.pull-quote', '.pull-quote',   { y: 56 });
+
+      /* EDITORIAL MASK — section titles rise out of a clip as they enter */
+      gsap.utils.toArray<HTMLElement>('.section-title').forEach((el) => {
+        gsap.fromTo(el, { clipPath: 'inset(0% 0% 100% 0%)' }, {
+          clipPath: 'inset(0% 0% 0% 0%)', ease: 'none',
+          scrollTrigger: { trigger: el, start: 'top 90%', end: 'top 60%', scrub: 0.6 },
+        });
+      });
+
+      /* DRAWN FRAMES — plates, pillar dividers and stat separators draw
+         themselves once their block enters view (CSS handles the choreography) */
+      /* The chamber runs its own entrance from inside HallOfFounders: its seats
+         are replaced wholesale when the roster loads, so tweens created here at
+         mount would be left holding detached nodes. */
+
+      ['.pillars', '.stats-row', '.ledger'].forEach((sel) => {
+        gsap.utils.toArray<HTMLElement>(sel).forEach((el) => {
+          ScrollTrigger.create({ trigger: el, start: 'top 80%', once: true, onEnter: () => el.classList.add('drawn') });
+        });
+      });
+
+      /* LIGHT BEAMS — a thin azure line draws down into each chapter */
+      gsap.utils.toArray<HTMLElement>('.section-beam').forEach((el) => {
+        gsap.fromTo(el, { scaleY: 0, autoAlpha: 0 }, {
+          scaleY: 1, autoAlpha: 1, ease: 'none',
+          scrollTrigger: { trigger: el, start: 'top 94%', end: 'top 72%', scrub: 0.6 },
+        });
+      });
 
       /* TOP SCROLL-PROGRESS BAR */
       gsap.to('.scroll-progress-fill', { scaleX: 1, ease: 'none',
         scrollTrigger: { trigger: document.documentElement, start: 'top top', end: 'bottom bottom', scrub: 0.3 } });
     });
 
-    // Recompute positions once layout/fonts/images settle.
+    // Recompute positions once layout/fonts/images settle. The last refresh has
+    // to land AFTER the intro finishes — it used to be hardcoded to 3200ms while
+    // the intro ran to 4500ms, so the final measurement was taken against a
+    // mid-transition layout.
+    const { hold, settle } = getIntroPlan();
     const r1 = requestAnimationFrame(() => ScrollTrigger.refresh());
     const t1 = setTimeout(() => ScrollTrigger.refresh(), 600);
-    const t2 = setTimeout(() => ScrollTrigger.refresh(), 3200); // after loading screen exits
+    const t2 = setTimeout(() => ScrollTrigger.refresh(), hold + settle + 300);
     const onLoad = () => ScrollTrigger.refresh();
     window.addEventListener('load', onLoad);
 
@@ -1500,11 +2154,11 @@ function DelegationSection({ delegates, onJoin, onSelect, loggedInDelegate, isFo
   isFounder: boolean;
   onEditProfile: () => void;
 }) {
-  const { ref } = useInView(0.1);
   return (
-    <section className="delegation" id="delegation" ref={ref}>
+    <section className="delegation" id="delegation">
       <div className="delegation-inner">
-        <div className="section-eyebrow">The Delegation</div>
+        <span className="section-beam" aria-hidden="true" />
+        <div className="section-eyebrow"><Decrypt text="The Delegation" /></div>
         <h2 className="section-title">Founding <span className="gold-accent">Delegates</span></h2>
         <p className="delegation-subtitle">
           The council seats fifteen. The cause belongs to everyone who answers it. Founding Delegates stand on the record beside the founders, without limit.
@@ -1517,7 +2171,7 @@ function DelegationSection({ delegates, onJoin, onSelect, loggedInDelegate, isFo
         {delegates.length > 0 ? (
           <div className="delegate-grid">
             {delegates.map((d, i) => (
-              <button className="delegate-card" key={d.id} onClick={() => onSelect(d)} title={`${d.fullName} — view`}>
+              <button className="delegate-card" key={d.id} onClick={() => onSelect(d)} title={`${d.fullName} · view`}>
                 <DelegateAvatar d={d} i={i} />
                 <div className="delegate-name">{d.firstName}</div>
                 <div className="delegate-meta">{d.grade} · {d.classGroup}</div>
@@ -1536,7 +2190,7 @@ function DelegationSection({ delegates, onJoin, onSelect, loggedInDelegate, isFo
             </>
           ) : isFounder ? (
             <p className="cta-sub" style={{ fontSize: '0.8rem' }}>
-              You're a Founding Member — your seat is in the council above.
+              You're a Founding Member. Your seat is in the council above.
             </p>
           ) : (
             <>
@@ -1606,19 +2260,18 @@ function DelegateModal({ onClose, onSuccess, preAuth }: {
         onSuccess(d);
         confetti({ particleCount: 120, spread: 80, origin: { y: 0.5 }, colors: CONFETTI_BLUES });
       } else {
-        setError('Could not register — this account may already be a founder or delegate.');
+        setError('Could not register. This account may already be a founder or delegate.');
       }
     } catch {
-      setError('Saving failed. The delegate list may not be enabled yet — ask the admin to publish the Firestore rules.');
+      setError('Saving failed. The delegate list may not be enabled yet. Ask the admin to publish the Firestore rules.');
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal" onClick={e => e.stopPropagation()}>
-        <button className="modal-close" onClick={onClose}>×</button>
+    <Modal onClose={onClose} label="Join the delegation">
+        <button className="modal-close" onClick={onClose} aria-label="Close dialog">×</button>
 
         {step === 'auth' && (
           <>
@@ -1675,8 +2328,7 @@ function DelegateModal({ onClose, onSuccess, preAuth }: {
             <div className="wb-badge">◆ Founding Member</div>
           </div>
         )}
-      </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -1688,9 +2340,9 @@ function DelegateDetailModal({ delegate, onClose, isAdmin, onAdminEdit, onDelete
   onDelete: (id: string, name: string) => void;
 }) {
   return (
-    <div className="detail-overlay" onClick={onClose}>
-      <div className="detail-card" onClick={e => e.stopPropagation()} style={{ textAlign: 'center' }}>
-        <button className="modal-close" onClick={onClose}>×</button>
+    <Modal onClose={onClose} overlayClass="detail-overlay" panelClass="detail-card"
+      label={`${delegate.fullName} · delegate`} panelStyle={{ textAlign: 'center' }}>
+        <button className="modal-close" onClick={onClose} aria-label="Close dossier">×</button>
         {delegate.avatar
           ? <img src={delegate.avatar} className="detail-avatar" alt={delegate.firstName} style={{ margin: '0 auto 1rem', display: 'block' }} />
           : <div className="detail-avatar-placeholder" style={{ margin: '0 auto 1rem' }}>{(delegate.firstName || '?').charAt(0).toUpperCase()}</div>}
@@ -1707,8 +2359,7 @@ function DelegateDetailModal({ delegate, onClose, isAdmin, onAdminEdit, onDelete
             </div>
           </div>
         )}
-      </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -1736,6 +2387,10 @@ export default function App() {
   const [delegateProfileOpen, setDelegateProfileOpen] = useState(false);
   const [selectedDelegate, setSelectedDelegate] = useState<Delegate | null>(null);
   const [adminEditDelegate, setAdminEditDelegate] = useState<Delegate | null>(null);
+
+  /* In-app replacements for window.confirm / window.alert */
+  const [confirmRequest, setConfirmRequest] = useState<ConfirmRequest | null>(null);
+  const [notice, setNotice] = useState<{ title: string; body: string } | null>(null);
 
   const isAdmin = isAdminEmail(adminEmail);
   const count = members.length;
@@ -1790,11 +2445,17 @@ export default function App() {
     if (mode === 'login') {
       if (member) setProfileModalOpen(true);
       else if (delegate) setDelegateProfileOpen(true);
-      else if (!isAdminEmail(user.email)) alert("You haven't joined yet. Claim a Founding Seat or become a Founding Delegate first.");
+      else if (!isAdminEmail(user.email)) setNotice({
+        title: 'No record yet',
+        body: "This account hasn't joined. Claim a Founding Seat, or add your name to the Founding Delegates.",
+      });
     } else if (mode === 'claim') {
       setModalOpen(true);
     } else if (mode === 'admin') {
-      if (!isAdminEmail(user.email)) alert('Access denied. You are not the administrator.');
+      if (!isAdminEmail(user.email)) setNotice({
+        title: 'Access denied',
+        body: 'That account does not hold administrator rights.',
+      });
     }
   };
 
@@ -1807,17 +2468,31 @@ export default function App() {
     setAuthMode(mode);
   };
 
-  const handleDeleteMember = async (id: string, name: string) => {
-    if (confirm(`Remove ${name} from the Founding Members? This cannot be undone.`)) {
-      await removeMember(id);
-      // If a delegate is waiting, the longest-waiting one fills the freed seat so
-      // the council stays at 15. If none are waiting, the seat opens for new founders.
-      await promoteEarliestDelegate();
-    }
+  const requestRemoveMember = (id: string, name: string) => {
+    setSelectedFounder(null);
+    setConfirmRequest({
+      title: 'Remove this founder?',
+      body: `${name} will be struck from the Founding Members. If a delegate is waiting, the longest-waiting one takes the freed seat. This cannot be undone.`,
+      confirmLabel: 'Remove Founder',
+      danger: true,
+      onConfirm: async () => {
+        await removeMember(id);
+        // If a delegate is waiting, the longest-waiting one fills the freed seat so
+        // the council stays at 15. If none are waiting, the seat opens for new founders.
+        await promoteEarliestDelegate();
+      },
+    });
   };
 
-  const handleDeleteDelegate = async (id: string, name: string) => {
-    if (confirm(`Remove ${name} from the Founding Delegates? This cannot be undone.`)) await removeDelegate(id);
+  const requestRemoveDelegate = (id: string, name: string) => {
+    setSelectedDelegate(null);
+    setConfirmRequest({
+      title: 'Remove this delegate?',
+      body: `${name} will be struck from the Founding Delegates. This cannot be undone.`,
+      confirmLabel: 'Remove Delegate',
+      danger: true,
+      onConfirm: async () => { await removeDelegate(id); },
+    });
   };
 
   const handleSuccess = (m: Member) => {
@@ -1834,6 +2509,8 @@ export default function App() {
       <Navbar onMenu={() => setMenuOpen(true)} seatsLeft={MAX - count} full={full} />
       <ScrollProgressRail />
       <AudioToggle />
+      <CursorGlow />
+      <Starfield />
       <div className="grain-overlay" />
       <div className="vignette-overlay" />
 
@@ -1894,6 +2571,8 @@ export default function App() {
         <div className="torch torch-left"><span className="torch-glow" /><span className="torch-flame" /></div>
         <div className="torch torch-right"><span className="torch-glow" /><span className="torch-flame" /></div>
         <div className="hero-water" />
+        <div className="hero-aurora" aria-hidden="true" />
+        <HeroDust />
 
         {/* Top spacer to balance visual layout and center content */}
         <div className="hero-spacer" style={{ flex: '1 1 0%' }} />
@@ -1953,7 +2632,7 @@ export default function App() {
                 transform: loaded ? 'translateY(0)' : 'translateY(10px)',
                 transition: 'opacity 0.8s ease 0.95s, transform 0.8s cubic-bezier(0.16, 1, 0.3, 1) 0.95s'
               }}>
-                Welcome back, {loggedInUser.firstName} — you are Founding Member #{loggedInUser.memberNumber}.
+                Welcome back, {loggedInUser.firstName}. You are Founding Member #{loggedInUser.memberNumber}.
               </p>
             </div>
           ) : loggedInDelegate ? (
@@ -1970,7 +2649,7 @@ export default function App() {
                 transform: loaded ? 'translateY(0)' : 'translateY(10px)',
                 transition: 'opacity 0.8s ease 0.95s, transform 0.8s cubic-bezier(0.16, 1, 0.3, 1) 0.95s'
               }}>
-                Welcome back, {loggedInDelegate.firstName} — Founding Delegate #{loggedInDelegate.delegateNumber}.
+                Welcome back, {loggedInDelegate.firstName}. Founding Delegate #{loggedInDelegate.delegateNumber}.
               </p>
             </div>
           ) : (!full && delegates.length === 0) ? (
@@ -2024,6 +2703,8 @@ export default function App() {
         members={enrichedMembers}
         onSeatClick={(m) => setSelectedFounder(m)}
         isAdmin={isAdmin}
+        /* A vacant seat is only an invitation for someone who could still take one. */
+        onClaimSeat={!full && !loggedInUser && !loggedInDelegate ? () => startAuth('claim') : undefined}
       />
 
       {/* ③½ Founding Delegates */}
@@ -2054,7 +2735,7 @@ export default function App() {
           </div>
         </div>
         <div className="footer-bottom">
-          © 2026 Youhua MUN — All founding seats recorded on the blockchain of history.
+          © 2026 Youhua MUN · All founding seats recorded on the blockchain of history.
           <br />
           <span style={{ opacity: 0.7 }}>
             Hero image: UN General Assembly Hall by Patrick Gruban, <a href="https://creativecommons.org/licenses/by-sa/2.0/" target="_blank" rel="noopener noreferrer" style={{ color: 'inherit', textDecoration: 'underline' }}>CC BY-SA 2.0</a>.
@@ -2079,7 +2760,7 @@ export default function App() {
             await toggleMainFounder(id, isMain);
             setSelectedFounder(null);
           }}
-          onDelete={async (id, name) => { await handleDeleteMember(id, name); setSelectedFounder(null); }}
+          onDelete={requestRemoveMember}
         />
       )}
       {certificate && <Certificate member={certificate} onClose={() => setCertificate(null)} />}
@@ -2115,16 +2796,21 @@ export default function App() {
           onClose={() => setSelectedDelegate(null)}
           isAdmin={isAdmin}
           onAdminEdit={(d) => { setSelectedDelegate(null); setAdminEditDelegate(d); }}
-          onDelete={async (id, name) => { await handleDeleteDelegate(id, name); setSelectedDelegate(null); }}
+          onDelete={requestRemoveDelegate}
         />
       )}
 
+      {confirmRequest && <ConfirmDialog request={confirmRequest} onClose={() => setConfirmRequest(null)} />}
+      {notice && <NoticeDialog title={notice.title} body={notice.body} onClose={() => setNotice(null)} />}
+
       {sealedShown && full && (
-        <div className="sealed-overlay" onClick={() => setSealedShown(false)}>
+        <Modal onClose={() => setSealedShown(false)} overlayClass="sealed-overlay"
+          panelClass="sealed-panel" label="The chamber is sealed">
           <div className="sealed-stamp">◆</div>
           <h2 className="sealed-title">The Chamber Is Sealed.</h2>
           <p className="sealed-sub">Founding Members have been chosen. The charter is complete.</p>
-        </div>
+          <button className="cert-close-btn" onClick={() => setSealedShown(false)}>Close</button>
+        </Modal>
       )}
     </>
   );
