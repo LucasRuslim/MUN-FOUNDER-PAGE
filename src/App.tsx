@@ -1634,9 +1634,22 @@ function Site() {
     return () => unsubscribe();
   }, []);
 
-  /* Anyone who signed up under the old Founding Delegates tier is folded into
-     the council rather than dropped. Idempotent, and a no-op once run. */
-  useEffect(() => { migrateDelegatesIntoCouncil().catch(() => {}); }, []);
+  /* Folding the old Founding Delegates tier into the council writes to members
+     and then deletes the delegate records, so it is deliberately NOT run on
+     page load by an anonymous visitor: the rules would reject those writes and
+     the failure would pass unnoticed. It waits for the admin to sign in, and
+     it reports what it did instead of swallowing the outcome. */
+  const migrated = useRef(false);
+  useEffect(() => {
+    if (!isAdmin || migrated.current) return;
+    migrated.current = true;
+    migrateDelegatesIntoCouncil()
+      .then(n => { if (n > 0) alert(`Moved ${n} former delegate${n === 1 ? '' : 's'} into the council.`); })
+      .catch(err => {
+        migrated.current = false;   // let a retry happen on the next sign-in
+        alert(`Could not move the former delegates into the council: ${err?.message ?? err}`);
+      });
+  }, [isAdmin]);
 
   const refresh = useCallback(() => {}, []);
   const [authMode, setAuthMode] = useState<null | 'login' | 'claim' | 'admin'>(null);
