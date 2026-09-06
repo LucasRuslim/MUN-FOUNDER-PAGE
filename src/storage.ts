@@ -15,6 +15,10 @@ export interface Member {
   avatarName?: string;
   bio?: string;
   isMainFounder?: boolean;
+  /* Club offices held (admin-assigned): role ids from the ROLES registry.
+     `role` is the legacy single-office field and is still read. */
+  roles?: string[];
+  role?: string;
   /* Council editor (admin): explicit perimeter seat + bestie pairing */
   seat?: number;
   bestieWith?: string;
@@ -110,6 +114,16 @@ export async function toggleMainFounder(id: string, isMainFounder: boolean): Pro
   await updateDoc(doc(db, 'members', id), { isMainFounder });
 }
 
+/* ─── Club offices (admin) ───
+   Writes the full set; the legacy single `role` field is cleared alongside. */
+export async function setMemberRoles(id: string, roles: string[]): Promise<void> {
+  await updateDoc(doc(db, 'members', id), { roles: roles.length ? roles : deleteField(), role: deleteField() });
+}
+
+export async function setDelegateRoles(id: string, roles: string[]): Promise<void> {
+  await updateDoc(doc(db, 'delegates', id), { roles: roles.length ? roles : deleteField(), role: deleteField() });
+}
+
 /* ─── Council editor (admin) ─── */
 // Persist an explicit perimeter order: seat = position index for each member.
 export async function reorderMembers(orderedIds: string[]): Promise<void> {
@@ -143,6 +157,9 @@ export interface Delegate {
   avatar?: string;
   avatarName?: string;
   bio?: string;
+  /* Club offices held (admin-assigned); see Member.roles */
+  roles?: string[];
+  role?: string;
 }
 
 let currentDelegates: Delegate[] = [];
