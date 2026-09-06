@@ -123,7 +123,7 @@ h1, h2, h3, h4, h5, h6 {
 p { text-wrap: pretty; }
 
 /* Numerals in the registry must line up in a column. */
-.ring-number, .stat-number, .delegation-count-num, .cert-number,
+.tally-num, .delegation-count-num, .cert-number,
 .seat-grade, .detail-meta, .delegate-meta {
   font-variant-numeric: tabular-nums;
 }
@@ -307,6 +307,7 @@ body.intro-active .intro-scan {
 .rail-node:focus-visible .rail-label { opacity: 1; transform: translateX(0); color: var(--text-body); }
 
 @media (max-width: 1100px) { .scroll-rail { display: none; } }
+
 
 
 /* ═══════════════════════════════════════════
@@ -523,16 +524,29 @@ body.intro-active .intro-scan {
   100% { transform: translate(4px, -4px); }
 }
 
+/* Two static plates, and speed cross-fades between them. The earlier version
+   interpolated --speed inside a gradient colour stop, which meant the browser
+   regenerated the gradient on every frame of every scroll. Opacity is the one
+   channel the compositor can drive without repainting, so the tight plate
+   simply fades in over the wide one. */
 .vignette-overlay {
   position: fixed;
   inset: 0;
   pointer-events: none;
   z-index: 8000;
   background: radial-gradient(ellipse at 50% 44%,
-    transparent calc(42% - var(--speed) * 20%),
+    transparent 42%,
     oklch(12% 0.022 262 / 0.62) 100%);
-  opacity: calc(0.85 + var(--speed) * 0.15);
-  transition: opacity 0.2s linear;
+}
+.vignette-overlay::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse at 50% 44%,
+    transparent 22%,
+    oklch(12% 0.022 262 / 0.78) 92%);
+  opacity: var(--speed);
+  will-change: opacity;
 }
 
 
@@ -552,7 +566,6 @@ body.intro-active .intro-scan {
   flex-direction: column;
   align-items: center;
   justify-content: space-between;
-  text-align: center;
   padding: var(--space-4xl) var(--space-md) var(--space-xl);
   position: relative;
   overflow: hidden;
@@ -579,33 +592,140 @@ body.intro-active .intro-scan {
   inset: -8%;
   background-color: var(--surface-abyss);
   background-image:
-    radial-gradient(ellipse at 50% 22%, oklch(30% 0.090 262 / 0.55) 0%, transparent 58%),
-    linear-gradient(180deg,
-      oklch(12% 0.022 262 / 0.60) 0%,
-      oklch(12% 0.022 262 / 0.80) 55%,
-      var(--surface-abyss) 100%),
-    url('/un-hall.jpg');
+    image-set(url('/un-hall.webp') type('image/webp'),
+              url('/un-hall.jpg')  type('image/jpeg'));
   background-repeat: no-repeat;
-  background-position: center 28%;
-  background-size: cover, cover, cover;
+  background-position: center 32%;
+  background-size: cover;
   transform: scale(1.07);
-  will-change: transform, filter;
+  will-change: transform;
+}
+/* The General Assembly's wood panelling photographs warm brown, which fought
+   every other surface on the page. `color` blending takes hue and saturation
+   from this plate and luminosity from the photograph underneath, which is a
+   duotone by definition, so no filter is needed. That matters: a filter on an
+   element the scroll rig is scaling has to be recomputed every frame, and
+   measured 17ms of frame time. Blending measured zero. */
+.hero-bg::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: oklch(34% 0.085 262);
+  mix-blend-mode: color;
 }
 .hero-bg::after {
   content: '';
   position: absolute;
   inset: 0;
-  background: linear-gradient(180deg, transparent 38%, var(--surface-abyss) 97%);
+  background:
+    radial-gradient(ellipse at 62% 30%, oklch(40% 0.110 262 / 0.42) 0%, transparent 62%),
+    linear-gradient(100deg,
+      oklch(12% 0.022 262 / 0.92) 0%,
+      oklch(12% 0.022 262 / 0.72) 44%,
+      oklch(12% 0.022 262 / 0.50) 72%),
+    linear-gradient(180deg, transparent 42%, var(--surface-abyss) 98%);
 }
 
-/* Plane 2 — the emblem, mid-depth. Three nested elements so mouse
-   look, scroll dolly and the idle breath never share a transform. */
-.hero-emblem {
+/* The emblem's idle breath and halo spin. The emblem itself is no longer a
+   backdrop plane; it lives in the medallion column defined further down. */
+@keyframes emblemBreath {
+  0%, 100% { transform: translateY(0) scale(1); }
+  50%      { transform: translateY(-10px) scale(1.02); }
+}
+/* Softened through its own colour stops rather than a filter: this element
+   spins continuously, and a blur would be re-rendered on every one of those
+   frames for the life of the page. */
+.emblem-halo {
   position: absolute;
-  top: 42%; left: 50%;
-  width: clamp(280px, 34vw, 460px);
-  height: clamp(280px, 34vw, 460px);
-  transform: translate(-50%, -50%);
+  inset: 2%;
+  border-radius: 50%;
+  background: conic-gradient(from 0deg,
+    transparent 0deg,
+    oklch(66% 0.180 261 / 0.06) 24deg,
+    oklch(66% 0.180 261 / 0.18) 60deg,
+    oklch(66% 0.180 261 / 0.06) 96deg,
+    transparent 140deg,
+    transparent 230deg,
+    oklch(77% 0.118 258 / 0.05) 266deg,
+    oklch(77% 0.118 258 / 0.14) 300deg,
+    oklch(77% 0.118 258 / 0.05) 334deg,
+    transparent 360deg);
+  -webkit-mask: radial-gradient(circle, transparent 28%, #000 44%, #000 64%, transparent 80%);
+  mask: radial-gradient(circle, transparent 28%, #000 44%, #000 64%, transparent 80%);
+  animation: haloSpin 28s linear infinite;
+}
+@keyframes haloSpin { to { transform: rotate(360deg); } }
+
+/* Plane 3 — ambient depth field, nearest the lens. */
+/* No filter here on purpose. A radial-gradient is already soft, so a 70px
+   blur over a 720px box is invisible work the compositor redoes on every
+   parent transform. The falloff does the same job for free. */
+.hero-orb { position: absolute; border-radius: 50%; pointer-events: none; will-change: transform; }
+.hero-orb-1 {
+  width: 860px; height: 860px;
+  background: radial-gradient(circle,
+    oklch(53% 0.186 262 / 0.17) 0%,
+    oklch(53% 0.186 262 / 0.09) 34%,
+    oklch(53% 0.186 262 / 0.03) 58%,
+    transparent 76%);
+  top: -280px; left: -260px;
+}
+.hero-orb-2 {
+  width: 760px; height: 760px;
+  background: radial-gradient(circle,
+    oklch(66% 0.180 261 / 0.13) 0%,
+    oklch(66% 0.180 261 / 0.07) 34%,
+    oklch(66% 0.180 261 / 0.02) 58%,
+    transparent 76%);
+  bottom: -220px; right: -220px;
+}
+@media (max-width: 720px) { .hero-orb-1, .hero-orb-2 { display: none; } }
+
+/* Stands in for the defocus the hero used to animate. Fading a fixed
+   gradient is a compositor-only change, where animating a filter forces a
+   full re-render of the plane underneath it every frame. */
+.hero-haze {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+  background:
+    radial-gradient(ellipse at 50% 42%, transparent 24%, oklch(12% 0.022 262 / 0.72) 78%),
+    linear-gradient(180deg, oklch(15.5% 0.030 262 / 0.5), oklch(12% 0.022 262 / 0.85));
+  will-change: opacity;
+}
+
+.hero-spacer { flex: 1 1 0%; }
+
+/* An asymmetric spread: the argument on the left, the object on the right.
+   The old centred stack put the type and the emblem in one column, which is
+   exactly why they collided. */
+.hero-content {
+  position: relative;
+  z-index: 2;
+  width: 100%;
+  max-width: 1160px;
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
+  align-items: center;
+  gap: var(--space-3xl);
+  will-change: transform, opacity;
+}
+.hero-copy { text-align: left; max-width: 34rem; }
+.hero-copy .gold-rule { margin-left: 0; }
+
+/* ── The medallion ── */
+.hero-medallion {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-xl);
+}
+.hero-emblem {
+  position: relative;
+  width: min(clamp(260px, 30vw, 400px), 100%);
+  aspect-ratio: 1;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -621,65 +741,117 @@ body.intro-active .intro-scan {
   will-change: transform, opacity;
 }
 .emblem-img {
-  width: 80%;
+  width: 60%;
   height: auto;
   opacity: 0.95;
   transform: scale(0.66);
   transform-origin: 50% 50%;
   filter: drop-shadow(0 0 22px oklch(77% 0.118 258 / 0.5));
   transition: opacity 1.9s ease, transform 2s cubic-bezier(0.22, 1, 0.3, 1), filter 1.9s ease;
-  will-change: transform, opacity, filter;
+  will-change: transform, opacity;
 }
+/* Out of the type's way now, so it can be read at full strength instead of
+   being faded to a ghost to stop it fighting the headline. */
 .emblem-img.alive {
-  opacity: 0.26;
+  opacity: 0.92;
   transform: scale(1);
-  filter: drop-shadow(0 0 16px oklch(66% 0.180 261 / 0.42));
+  filter: drop-shadow(0 0 24px oklch(66% 0.180 261 / 0.45));
   animation: emblemBreath 7.5s ease-in-out 2.3s infinite;
 }
-@keyframes emblemBreath {
-  0%, 100% { transform: translateY(0) scale(1); }
-  50%      { transform: translateY(-10px) scale(1.02); }
-}
-.emblem-halo {
+
+/* The collar: the ring the emblem sits INSIDE, not a gauge parked on top of
+   it. It carries no centre text, because the centre is the globe. */
+.collar {
   position: absolute;
-  inset: 4%;
-  border-radius: 50%;
-  background: conic-gradient(from 0deg,
-    transparent 0deg,
-    oklch(66% 0.180 261 / 0.20) 60deg,
-    transparent 140deg,
-    transparent 230deg,
-    oklch(77% 0.118 258 / 0.16) 300deg,
-    transparent 360deg);
-  filter: blur(26px);
-  animation: haloSpin 28s linear infinite;
+  inset: 0;
+  width: 100%; height: 100%;
+  transform: rotate(-90deg);
+  overflow: visible;
 }
-@keyframes haloSpin { to { transform: rotate(360deg); } }
+.collar-open { transform: none; }
 
-/* Plane 3 — ambient depth field, nearest the lens. */
-.hero-orb { position: absolute; border-radius: 50%; pointer-events: none; will-change: transform; }
-.hero-orb-1 {
-  width: 720px; height: 720px;
-  background: radial-gradient(circle, oklch(53% 0.186 262 / 0.16) 0%, transparent 70%);
-  filter: blur(70px);
-  top: -220px; left: -200px;
+.ring-bg { fill: none; stroke: var(--rim-hair); stroke-width: 2; }
+.ring-fill {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2.5;
+  stroke-linecap: butt;
+  transition: stroke-dashoffset 1.6s var(--ease-entrance);
 }
-.hero-orb-2 {
-  width: 620px; height: 620px;
-  background: radial-gradient(circle, oklch(66% 0.180 261 / 0.12) 0%, transparent 70%);
-  filter: blur(80px);
-  bottom: -160px; right: -160px;
+.ring-fill.urgent,
+.ring-fill.full { stroke: var(--accent-lift); }
+.ring-open {
+  fill: none;
+  stroke: var(--accent-lift);
+  stroke-width: 1.5;
+  stroke-linecap: butt;
+  opacity: 0.7;
+  transform-origin: 110px 110px;
+  animation: ringSpin 44s linear infinite;
 }
-@media (max-width: 720px) { .hero-orb-1, .hero-orb-2 { display: none; } }
+@keyframes ringSpin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 
-.hero-spacer { flex: 1 1 0%; }
-
-.hero-content {
-  position: relative;
-  z-index: 2;
-  max-width: 42rem;
-  will-change: transform, opacity, filter;
+/* ── The tally, set as type beneath the medallion ── */
+.hero-tally {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  align-items: center;
+  text-align: center;
 }
+.tally-line {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: var(--space-2xs) var(--space-sm);
+  margin: 0;
+}
+.tally-num {
+  font-family: var(--font-display);
+  font-size: 2.5rem;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--text-strong);
+  font-variant-numeric: tabular-nums;
+}
+.tally-unit {
+  font-size: var(--text-meta);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--accent-veil);
+}
+.tally-state {
+  font-size: var(--text-label);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2xs);
+  padding-left: var(--space-sm);
+  border-left: 1px solid var(--rim);
+}
+.tally-state.open { color: var(--accent-lift); }
+
+@media (max-width: 900px) {
+  .hero-content {
+    grid-template-columns: 1fr;
+    gap: var(--space-xl);
+    justify-items: center;
+    max-width: 34rem;
+  }
+  .hero-copy { text-align: center; }
+  .hero-copy .gold-rule { margin-inline: auto; }
+  /* The medallion still leads, but small enough that the headline and the
+     call to action both clear the fold on a phone. At its old size it ate
+     two thirds of the screen and pushed the argument out of sight. */
+  .hero-medallion { order: -1; gap: var(--space-md); }
+  .hero-emblem { width: min(184px, 46vw); }
+  .tally-num { font-size: 1.75rem; }
+  .tally-unit { font-size: var(--text-label); }
+}
+
 
 .hero-eyebrow {
   font-size: var(--text-label);
@@ -744,75 +916,12 @@ body.intro-active .intro-scan {
 }
 
 
-/* ═══════════════════════════════════════════
-   PROGRESS RINGS
-═══════════════════════════════════════════ */
-.ring-container { position: relative; width: 168px; height: 168px; margin: var(--space-lg) auto; }
-.ring-container svg { transform: rotate(-90deg); width: 168px; height: 168px; }
-.ring-bg { fill: none; stroke: var(--rim-hair); stroke-width: 6; }
-.ring-fill {
-  fill: none;
-  stroke: url(#ringGradient);
-  stroke-width: 6;
-  stroke-linecap: butt;
-  transition: stroke-dashoffset 1.6s var(--ease-entrance);
-}
-.ring-text { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
-.ring-number {
-  font-family: var(--font-display);
-  font-size: 3rem; font-weight: 600;
-  color: var(--text-strong); line-height: 1;
-}
-.ring-label {
-  font-size: var(--text-label); text-transform: uppercase; letter-spacing: 0.18em;
-  color: var(--accent-veil); margin-top: var(--space-xs);
-  text-shadow: 0 1px 10px oklch(12% 0.022 262 / 0.9);
-}
-
-.hero-stats {
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  gap: var(--space-xl);
-  flex-wrap: wrap;
-}
-.hero-stat { display: flex; flex-direction: column; align-items: center; }
-.hero-stat .ring-container { width: 144px; height: 144px; margin: var(--space-md) 0 var(--space-xs); }
-.hero-stat .ring-container svg { width: 144px; height: 144px; }
-.hero-stat .ring-number { font-size: 2.5rem; }
-.hero-stat-cap {
-  font-size: var(--text-label);
-  letter-spacing: 0.2em;
-  text-transform: uppercase;
-  color: var(--accent-veil);
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-xs);
-  text-shadow: 0 1px 8px oklch(12% 0.022 262 / 0.85);
-}
-.hero-stat-cap.open { color: var(--accent-lift); }
+/* The status light shared by the navbar and the delegate tally. */
 .cap-dot {
   width: var(--space-xs); height: var(--space-xs); border-radius: 50%;
   background: var(--accent-lift);
   animation: pulse-dot 1.6s infinite;
 }
-.delegate-ring svg { transform: none; }
-.ring-open {
-  fill: none;
-  stroke: url(#delRingGradient);
-  stroke-width: 6;
-  stroke-linecap: butt;
-  transform-origin: 105px 105px;
-  animation: ringSpin 18s linear infinite;
-}
-@keyframes ringSpin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-@media (max-width: 480px) {
-  .hero-stats { gap: var(--space-md); }
-  .hero-stat .ring-container { width: 120px; height: 120px; }
-  .hero-stat .ring-container svg { width: 120px; height: 120px; }
-  .hero-stat .ring-number { font-size: 2rem; }
-}
-
 
 /* ═══════════════════════════════════════════
    BUTTONS — one filled plate per band, struck in the brand blue.
@@ -904,8 +1013,12 @@ body.intro-active .intro-scan {
 @keyframes audioBar { 0%, 100% { height: 25%; } 50% { height: 100%; } }
 .audio-label { font-size: var(--text-label); letter-spacing: 0.18em; text-transform: uppercase; color: var(--text-body); }
 @media (max-width: 720px) { .audio-toggle { bottom: 68px; left: var(--space-md); } }
-/* Narrow phones: the control becomes its own visualiser, no caption. */
-@media (max-width: 480px) { .audio-label { display: none; } .audio-toggle { padding: var(--space-xs) var(--space-sm); } }
+/* Narrow phones: the control becomes its own visualiser, no caption, and
+   moves to the free bottom-left corner rather than sitting on the CTA. */
+@media (max-width: 560px) {
+  .audio-label { display: none; }
+  .audio-toggle { padding: var(--space-xs) var(--space-sm); bottom: var(--space-md); }
+}
 
 
 /* ═══════════════════════════════════════════
@@ -1972,4 +2085,26 @@ body.intro-active .intro-scan {
   .hall-chamber { --tilt: 0deg !important; perspective: none; }
   .chamber-stage { transform: none; }
   .seat-upright { transform: none; }
+}
+
+
+/* ═══════════════════════════════════════════
+   LATE RESPONSIVE OVERRIDES
+
+   These live at the end deliberately. Each one narrows a base rule declared
+   further up the file, and CSS resolves equal specificity by source order,
+   so a media query placed beside its section would silently lose.
+═══════════════════════════════════════════ */
+@media (max-width: 560px) {
+  .hero { padding-top: 104px; }
+  .hero-emblem { width: min(160px, 44vw); }
+  /* Keeps the label on one line instead of orphaning the arrow. */
+  .cta-btn { padding: var(--space-md) var(--space-lg); letter-spacing: 0.06em; font-size: 0.8125rem; }
+}
+
+/* Where the rail is visible it owns the left edge, so the content column
+   reserves that gutter instead of running its headlines underneath the
+   chapter labels. */
+@media (min-width: 1101px) {
+  .hero, .section, .hall, .delegation, .site-footer { padding-left: 232px; }
 }

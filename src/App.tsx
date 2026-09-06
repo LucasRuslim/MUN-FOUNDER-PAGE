@@ -90,61 +90,44 @@ function WordRevealTitle({ text, loaded }: { text: string; loaded: boolean }) {
   );
 }
 
-/* ─── Progress Ring ─── */
+/* ─── Progress collar ───
+   Not a widget parked on top of the emblem, but the ring the emblem sits
+   inside: the charter closing around the world. It carries no centre text,
+   because the centre is the globe. The tally is set beneath it as type. */
 function ProgressRing({ count }: { count: number }) {
-  const r = 88;
+  const r = 96;
   const circ = 2 * Math.PI * r;
   const offset = circ - (count / MAX) * circ;
   const urgent = count >= 13 && count < MAX;
   const full = count >= MAX;
 
   return (
-    <div className="ring-container">
-      <svg viewBox="0 0 210 210">
-        <defs>
-          <linearGradient id="ringGradient" x1="0%" y1="0%" x2="100%" y2="100%">
-            <stop offset="0%" stopColor="#2f63d6" />
-            <stop offset="55%" stopColor="#4c8dff" />
-            <stop offset="100%" stopColor="#84b6ff" />
-          </linearGradient>
-        </defs>
-        <circle cx="105" cy="105" r={r} className="ring-bg" />
-        <circle
-          cx="105" cy="105" r={r}
-          className={`ring-fill ${urgent ? 'urgent' : ''} ${full ? 'full' : ''}`}
-          strokeDasharray={circ}
-          strokeDashoffset={offset}
-        />
-      </svg>
-      <div className="ring-text">
-        <span className="ring-number">{count}</span>
-        <span className="ring-label">of {MAX} claimed</span>
-      </div>
-    </div>
+    <svg className="collar" viewBox="0 0 210 210" aria-hidden="true">
+      <circle cx="105" cy="105" r={r} className="ring-bg" />
+      <circle
+        cx="105" cy="105" r={r}
+        className={`ring-fill ${urgent ? 'urgent' : ''} ${full ? 'full' : ''}`}
+        strokeDasharray={circ}
+        strokeDashoffset={offset}
+      />
+    </svg>
   );
 }
 
-/* ─── Delegate Ring (open / unlimited — never "full") ─── */
+/* ─── Delegate collar (open / unlimited, never "full") ───
+   A broken arc one step outside the founders' collar: the council closes,
+   the delegation does not. */
 function DelegateRing({ count }: { count: number }) {
-  const r = 88;
+  const r = 104;
   const circ = 2 * Math.PI * r;
   return (
-    <div className="ring-container delegate-ring">
-      <svg viewBox="0 0 210 210">
-        <defs>
-          <linearGradient id="delRingGradient" x1="0%" y1="0%" x2="100%" y2="100%">
-            <stop offset="0%" stopColor="#84b6ff" />
-            <stop offset="100%" stopColor="#c4dbff" />
-          </linearGradient>
-        </defs>
-        <circle cx="105" cy="105" r={r} className="ring-bg" />
-        <circle cx="105" cy="105" r={r} className="ring-open" strokeDasharray={`${circ * 0.16} ${circ * 0.09}`} />
-      </svg>
-      <div className="ring-text">
-        <span className="ring-number">{count}</span>
-        <span className="ring-label">delegates</span>
-      </div>
-    </div>
+    <svg className="collar collar-open" viewBox="0 0 220 220" aria-hidden="true" data-count={count}>
+      <circle
+        cx="110" cy="110" r={r}
+        className="ring-open"
+        strokeDasharray={`${(circ * 0.055).toFixed(2)} ${(circ * 0.035).toFixed(2)}`}
+      />
+    </svg>
   );
 }
 
@@ -1409,10 +1392,17 @@ const D_IN   = (P_IN_START - P_IN_END) / SPAN;
 const D_HOLD = (P_IN_END - P_OUT_START) / SPAN;
 const D_OUT  = (P_OUT_START - P_OUT_END) / SPAN;
 
-type DepthOpts = { depth?: number; rise?: number; lift?: number; blur?: number; offset?: number };
+type DepthOpts = { depth?: number; rise?: number; lift?: number; offset?: number };
 
+/* Nothing here animates a filter. Blurring on scroll reads beautifully and
+   costs the earth: the browser re-renders the blurred plane on every frame
+   instead of just re-compositing it, which measured out at 8fps on a
+   mid-range machine. Perspective already sells the depth, because moving a
+   plane along Z scales it against the lens. Transform and opacity are the
+   two properties the compositor can animate without repainting, so those
+   are the two the rig is allowed to touch. */
 function depthReveal(el: Element, opts: DepthOpts = {}) {
-  const { depth = 420, rise = 60, lift = 240, blur = 0, offset = 0 } = opts;
+  const { depth = 420, rise = 60, lift = 240, offset = 0 } = opts;
   const start = `top ${(P_IN_START * 100 - offset).toFixed(1)}%`;
   const end = `top ${(P_OUT_END * 100 - offset).toFixed(1)}%`;
 
@@ -1422,16 +1412,13 @@ function depthReveal(el: Element, opts: DepthOpts = {}) {
   });
 
   tl.fromTo(el,
-      { autoAlpha: 0, z: -depth, y: rise, rotateX: 7, filter: blur ? `blur(${blur}px)` : 'none' },
-      { autoAlpha: 1, z: 0, y: 0, rotateX: 0, filter: blur ? 'blur(0px)' : 'none',
-        duration: D_IN, ease: 'expo.out' })
-    /* The hold is a real, empty stretch of scroll: the element sits at
-       z:0 with no filter, so type renders on the pixel grid while you
-       are actually reading it. */
+      { autoAlpha: 0, z: -depth, y: rise, rotateX: 7 },
+      { autoAlpha: 1, z: 0, y: 0, rotateX: 0, duration: D_IN, ease: 'expo.out' })
+    /* The hold is a real, empty stretch of scroll: the element sits at z:0
+       so type renders on the pixel grid while you are actually reading it. */
     .to(el, { duration: D_HOLD })
     .to(el,
       { autoAlpha: 0, z: lift, y: -(rise * 0.85), rotateX: -5,
-        filter: blur ? `blur(${blur * 0.8}px)` : 'none',
         duration: D_OUT, ease: 'power2.in' });
 
   return tl;
@@ -1441,10 +1428,6 @@ function depthReveal(el: Element, opts: DepthOpts = {}) {
 function useScrollFX() {
   useEffect(() => {
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-    const coarse = window.matchMedia('(pointer: coarse)').matches;
-    /* Depth blur is the single most expensive thing here, so it is
-       spent only on the few large planes where defocus actually reads. */
-    const softBlur = coarse ? 0 : 6;
 
     const ctx = gsap.context(() => {
       /* ── HERO: a three-plane camera move ──
@@ -1453,14 +1436,17 @@ function useScrollFX() {
          plane is a different element from the one mouse-look drives,
          so the two rigs never overwrite each other's transform. */
       gsap.timeline({ scrollTrigger: { trigger: '.hero', start: 'top top', end: 'bottom top', scrub: 0.4 } })
-        .to('.hero-bg', { scale: 1.24, yPercent: 5, filter: `blur(${coarse ? 0 : 8}px)`, ease: 'none' }, 0)
+        .to('.hero-bg', { scale: 1.24, yPercent: 5, ease: 'none' }, 0)
+        /* Haze rising is the defocus. Fading a static gradient is a
+           compositor job; animating a blur is a repaint. */
+        .to('.hero-haze', { opacity: 1, ease: 'none' }, 0)
         .to('.emblem-dolly', { scale: 1.85, autoAlpha: 0, ease: 'power1.in' }, 0)
         .to('.hero-orb-1', { yPercent: -46, ease: 'none' }, 0)
         .to('.hero-orb-2', { yPercent: -18, ease: 'none' }, 0);
 
       gsap.fromTo('.hero-content',
-        { z: 0, y: 0, autoAlpha: 1, filter: 'blur(0px)' },
-        { z: 480, y: -60, autoAlpha: 0, filter: `blur(${coarse ? 0 : 10}px)`,
+        { z: 0, y: 0, autoAlpha: 1 },
+        { z: 480, y: -60, autoAlpha: 0,
           transformPerspective: 1100, ease: 'power2.in',
           scrollTrigger: { trigger: '.hero', start: 'top top', end: '66% top', scrub: 0.4 } });
 
@@ -1469,10 +1455,10 @@ function useScrollFX() {
 
       /* ── PAGE PLANES ── */
       gsap.utils.toArray<HTMLElement>('.section-title, .about-intro, .hall-subtitle, .delegation-subtitle, .section-lede')
-        .forEach((el) => depthReveal(el, { depth: 460, rise: 54, blur: softBlur }));
+        .forEach((el) => depthReveal(el, { depth: 460, rise: 54 }));
 
       gsap.utils.toArray<HTMLElement>('.pull-quote')
-        .forEach((el) => depthReveal(el, { depth: 520, rise: 60, lift: 300, blur: softBlur }));
+        .forEach((el) => depthReveal(el, { depth: 520, rise: 60, lift: 300 }));
 
       /* Rows stagger in SCROLL space rather than in time: each card
          starts a little later down the page, so the cascade reads the
@@ -1481,7 +1467,7 @@ function useScrollFX() {
         gsap.utils.toArray<HTMLElement>(sel).forEach((el, i) =>
           depthReveal(el, { ...o, offset: i * step }));
 
-      scrollStagger('.value-card', 3.5, { depth: 480, rise: 64, blur: softBlur });
+      scrollStagger('.value-card', 3.5, { depth: 480, rise: 64 });
       scrollStagger('.pillar', 2.5, { depth: 340, rise: 40 });
       scrollStagger('.delegate-card', 1.2, { depth: 300, rise: 34 });
 
@@ -1500,7 +1486,7 @@ function useScrollFX() {
          through a plain object so the custom property is written as a
          string the compositor can interpolate. */
       const chamber = document.querySelector('.hall-chamber') as HTMLElement | null;
-      if (chamber && !coarse) {
+      if (chamber && !window.matchMedia('(pointer: coarse)').matches) {
         const cam = { tilt: 26 };
         gsap.to(cam, {
           tilt: 10, ease: 'none',
@@ -1565,9 +1551,12 @@ function useHeroParallax(active: boolean) {
       tx += (mx - tx) * 0.06;
       ty += (my - ty) * 0.06;
       /* The plates sit at different Z, so they travel at different
-         rates for the same head movement. That is the whole parallax. */
+         rates for the same head movement. That is the whole parallax.
+         The emblem is laid out in the medallion column now rather than
+         absolutely centred, so it takes a plain offset: the -50% that used
+         to centre it would drag it out of its own cell. */
       if (plate) plate.style.transform = `translate3d(${tx * -26}px, ${ty * -26}px, 0)`;
-      if (emblem) emblem.style.transform = `translate3d(calc(-50% + ${tx * 38}px), calc(-50% + ${ty * 34}px), 0)`;
+      if (emblem) emblem.style.transform = `translate3d(${tx * 22}px, ${ty * 20}px, 0)`;
       raf = requestAnimationFrame(loop);
     };
     window.addEventListener('mousemove', onMove);
@@ -1983,20 +1972,15 @@ export default function App() {
           <div className="hero-plate">
             <div className="hero-bg" />
           </div>
-          <div className="hero-emblem">
-            <div className="emblem-dolly">
-              <span className="emblem-halo" />
-              <img src="/un-emblem.svg" alt="" className={`emblem-img ${loaded ? 'alive' : ''}`} />
-              <span className="intro-scan" />
-            </div>
-          </div>
           <div className="hero-orb hero-orb-1" />
           <div className="hero-orb hero-orb-2" />
+          <div className="hero-haze" />
         </div>
 
         <div className="hero-spacer" />
 
         <div className="hero-content">
+          <div className="hero-copy">
           <div className="hero-eyebrow" style={{ opacity: loaded ? 1 : 0, transition: 'opacity 0.6s ease 0.12s' }}>
             Youhua School · Model United Nations
           </div>
@@ -2007,29 +1991,6 @@ export default function App() {
               ? `Almost gone. ${MAX - count} seat${MAX - count !== 1 ? 's' : ''} left before the charter is sealed.`
               : 'Fifteen seats, filled once. There is no second founding year.'}
           </p>
-
-          <div
-            style={{
-              opacity: loaded ? 1 : 0,
-              transform: loaded ? 'translateY(0) scale(1)' : 'translateY(20px) scale(0.96)',
-              transition: 'opacity 0.8s ease 0.75s, transform 0.8s cubic-bezier(0.16, 1, 0.3, 1) 0.75s'
-            }}
-          >
-            {full ? (
-              <div className="hero-stats">
-                <div className="hero-stat">
-                  <ProgressRing count={count} />
-                  <div className="hero-stat-cap">Council · Sealed</div>
-                </div>
-                <div className="hero-stat">
-                  <DelegateRing count={delegates.length} />
-                  <div className="hero-stat-cap open"><span className="cap-dot" /> Delegates · Open</div>
-                </div>
-              </div>
-            ) : (
-              <ProgressRing count={count} />
-            )}
-          </div>
 
           {loggedInUser ? (
             <div
@@ -2099,6 +2060,52 @@ export default function App() {
               }}>Unlimited places. Your name still stands on the founding record.</p>
             </div>
           )}
+          </div>
+
+          {/* The medallion. The emblem used to sit behind the headline as a
+              backdrop, where the laurel tangled with the type and the ring
+              landed on the globe. Here it is a composed object in its own
+              column: the progress arc is the collar the emblem sits inside,
+              and the tally is set beneath it rather than on top of it. */}
+          <div className="hero-medallion">
+            <div className="hero-emblem">
+              <div className="emblem-dolly">
+                <span className="emblem-halo" />
+                <img src="/un-emblem.svg" alt="" className={`emblem-img ${loaded ? 'alive' : ''}`} />
+                <span className="intro-scan" />
+                {full ? (
+                  <>
+                    <ProgressRing count={count} />
+                    <DelegateRing count={delegates.length} />
+                  </>
+                ) : (
+                  <ProgressRing count={count} />
+                )}
+              </div>
+            </div>
+
+            <div className="hero-tally" style={{ opacity: loaded ? 1 : 0, transition: 'opacity 0.8s ease 0.75s' }}>
+              {full ? (
+                <>
+                  <p className="tally-line">
+                    <span className="tally-num">{MAX}</span>
+                    <span className="tally-unit">of {MAX} founding seats</span>
+                    <span className="tally-state">Council sealed</span>
+                  </p>
+                  <p className="tally-line">
+                    <span className="tally-num">{delegates.length}</span>
+                    <span className="tally-unit">founding delegates</span>
+                    <span className="tally-state open"><span className="cap-dot" />Still open</span>
+                  </p>
+                </>
+              ) : (
+                <p className="tally-line">
+                  <span className="tally-num">{count}</span>
+                  <span className="tally-unit">of {MAX} founding seats claimed</span>
+                </p>
+              )}
+            </div>
+          </div>
         </div>
 
         <div className="hero-spacer" style={{ minHeight: '1.5rem' }} />
