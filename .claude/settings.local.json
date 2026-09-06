@@ -29,7 +29,10 @@
       "Bash(gh pr *)",
       "Bash(git checkout *)",
       "Bash(git commit *)",
-      "Bash(git ls-remote *)"
+      "Bash(git ls-remote *)",
+      "Skill(impeccable)",
+      "Skill(impeccable:*)",
+      "Bash(node \"C:/Users/lucas/.claude/skills/impeccable/scripts/context.mjs\" --target src/App.tsx)"
     ]
   }
 }

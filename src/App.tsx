@@ -1,11 +1,11 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { Fragment, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 // @ts-ignore
 import confetti from 'canvas-confetti';
 // @ts-ignore
 import Lenis from '@studio-freight/lenis';
 import { gsap } from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
-import { getMembers, subscribeToMembers, addMember, isMemberByEmail, removeMember, updateMember, toggleMainFounder, getDelegates, subscribeToDelegates, addDelegate, isDelegateByEmail, updateDelegate, removeDelegate, promoteEarliestDelegate, reorderMembers, setBesties, clearBesties, type Member, type Delegate } from './storage';
+import { getMembers, subscribeToMembers, addMember, isMemberByEmail, removeMember, updateMember, toggleMainFounder, getDelegates, subscribeToDelegates, addDelegate, isDelegateByEmail, updateDelegate, removeDelegate, promoteEarliestDelegate, reorderMembers, setBesties, clearBesties, setMemberRoles, setDelegateRoles, type Member, type Delegate } from './storage';
 import { useInView } from './useInView';
 import { signInWithGoogle, getCachedGoogleUser, renderGoogleButton, type GoogleUser } from './googleAuth';
 
@@ -29,9 +29,31 @@ const CHAPTERS = [
   { id: 'hero',  label: 'The Chamber' },
   { id: 'value', label: 'The Privilege' },
   { id: 'hall',  label: 'The Founders' },
+  { id: 'secretariat', label: 'The Offices' },
   { id: 'delegation', label: 'The Delegation' },
   { id: 'about', label: 'The Mission' },
 ];
+
+/* ─── The club's offices ───
+   Every seat at the round table, in seating order. No office ranks another:
+   the two Presidents share one chair beside their directors. A person may hold
+   several offices; assignment is an array of role ids on their document. */
+type RoleDef = { id: string; en: string; zh: string; hue: string; glyph: string; duty: string };
+const ROLES: RoleDef[] = [
+  { id: 'president', en: 'The Presidents',          zh: '正副社長', hue: '#f6d789', glyph: '✦', duty: 'Two chairs, one gavel. They run the council and speak for the club.' },
+  { id: 'events',    en: 'Directorate of Events',    zh: '活動',     hue: '#f2a0bd', glyph: '❖', duty: 'Designs every session, conference, and occasion the club holds.' },
+  { id: 'treasury',  en: 'Directorate of Treasury',  zh: '總務',     hue: '#7fe0c3', glyph: '◈', duty: 'Keeps the ledger, the budget, and the club’s resources in order.' },
+  { id: 'academics', en: 'Directorate of Academics', zh: '教學',     hue: '#84b6ff', glyph: '❋', duty: 'Trains delegates in procedure, research, and the art of debate.' },
+  { id: 'pr',        en: 'Public Relations',         zh: '公關',     hue: '#b9a6f6', glyph: '◎', duty: 'Carries the club’s name outward: partners, schools, and the public.' },
+  { id: 'web',       en: 'Web & Systems',            zh: '網管',     hue: '#8fd3f4', glyph: '◉', duty: 'Runs this site and the systems the club relies on.' },
+  { id: 'candidate', en: 'Officer Candidates',       zh: '幹部候選', hue: '#9fb2d8', glyph: '◇', duty: 'Under consideration for office in the coming term.' },
+];
+const roleById = (id?: string) => (id ? ROLES.find(r => r.id === id) : undefined);
+/* Offices a person holds; reads the legacy single `role` field too. */
+function rolesOf(p: { role?: string; roles?: string[] }): string[] {
+  if (p.roles && p.roles.length) return p.roles.filter(id => roleById(id));
+  return p.role && roleById(p.role) ? [p.role] : [];
+}
 
 /* Module-level smooth-scroll instance so the rail/menu can drive it */
 let lenisInstance: any = null;
@@ -502,13 +524,7 @@ function Navbar({ onMenu, seatsLeft, full }: { onMenu: () => void; seatsLeft: nu
 
 /* ─── Slide-out Menu ─── */
 function SideMenu({ onClose }: { onClose: () => void }) {
-  const links = [
-    { label: 'The Chamber', id: 'hero' },
-    { label: 'The Privilege', id: 'value' },
-    { label: 'The Founders', id: 'hall' },
-    { label: 'The Delegation', id: 'delegation' },
-    { label: 'The Mission', id: 'about' },
-  ];
+  const links = CHAPTERS.map(c => ({ label: c.label, id: c.id }));
   const go = (id: string) => { onClose(); setTimeout(() => scrollToId(id), 220); };
   return (
     <>
@@ -1366,7 +1382,45 @@ function ProfileEditorModal({ member, onClose, onUpdate, numberLabel, saveFn }: 
 }
 
 /* ─── Founder Detail Modal ─── */
-function FounderDetailModal({ member, displayTitle, onClose, isAdmin, onAdminEdit, onToggleMain, onDelete }: {
+/* Shown in both dossiers: every office this person holds, each in its colour. */
+function OfficeBadges({ roles }: { roles: string[] }) {
+  const defs = roles.map(id => roleById(id)).filter((d): d is RoleDef => !!d);
+  if (!defs.length) return null;
+  return (
+    <div className="office-badges">
+      {defs.map(d => (
+        <span key={d.id} className="office-badge" style={{ ['--office' as any]: d.hue }}>
+          <span aria-hidden="true">{d.glyph}</span> {d.zh} · {d.en}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+/* Admin: toggle any number of offices on this person. */
+function RoleToggles({ value, onChange }: { value: string[]; onChange: (roles: string[]) => void }) {
+  const toggle = (id: string) => onChange(value.includes(id) ? value.filter(r => r !== id) : [...value, id]);
+  return (
+    <div className="admin-role-row">
+      <span className="admin-role-label">Offices · 職位</span>
+      <div className="role-toggles">
+        {ROLES.map(r => (
+          <button
+            key={r.id} type="button"
+            className={`role-toggle ${value.includes(r.id) ? 'on' : ''}`}
+            style={{ ['--office' as any]: r.hue }}
+            aria-pressed={value.includes(r.id)}
+            onClick={() => toggle(r.id)}
+          >
+            <span aria-hidden="true">{r.glyph}</span> {r.zh}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function FounderDetailModal({ member, displayTitle, onClose, isAdmin, onAdminEdit, onToggleMain, onDelete, onSetRoles }: {
   member: Member;
   displayTitle: string;
   onClose: () => void;
@@ -1374,6 +1428,7 @@ function FounderDetailModal({ member, displayTitle, onClose, isAdmin, onAdminEdi
   onAdminEdit: (m: Member) => void;
   onToggleMain: (id: string, isMain: boolean) => void;
   onDelete: (id: string, name: string) => void;
+  onSetRoles: (id: string, roles: string[]) => void;
 }) {
   return (
     <Modal onClose={onClose} overlayClass="detail-overlay" panelClass="detail-card"
@@ -1397,6 +1452,7 @@ function FounderDetailModal({ member, displayTitle, onClose, isAdmin, onAdminEdi
         }}>
           {member.isMainFounder && '★ '} {displayTitle}
         </div>
+        <OfficeBadges roles={rolesOf(member)} />
 
         {member.isMainFounder && (
           <div className="meeting-notice" style={{
@@ -1416,6 +1472,7 @@ function FounderDetailModal({ member, displayTitle, onClose, isAdmin, onAdminEdi
         {isAdmin && (
           <div className="admin-panel">
             <div className="admin-panel-label">◆ Administrator Controls</div>
+            <RoleToggles value={rolesOf(member)} onChange={(roles) => onSetRoles(member.id, roles)} />
             <div className="admin-panel-actions">
               <button className="admin-act" onClick={() => onAdminEdit(member)}>Edit Photo &amp; Quote</button>
               <button className="admin-act" onClick={() => onToggleMain(member.id, !member.isMainFounder)}>
@@ -1551,23 +1608,74 @@ function chamberStations(geo: ChamberGeo, n: number): Station[] {
 /* Fracture lines for the sealing moment: jagged runs striking out from the
    centre of the floor. Seeded rather than random so the same charter always
    cracks the same way, and so React re-renders don't reshuffle them mid-flight. */
-function sealCracks(cx: number, cy: number, count: number, maxR: number, seed = 20260726) {
+/* ─── The Sigil of the Charter ───
+   The sealing stamps an engraved sigil into the floor: two rings around the
+   mark, fifteen ticks between them (one per founding seat), and — only outside
+   the outer ring — tapered splinters where the slab actually gave. Stroked
+   polylines can't taper, and taper is what separates "fracture" from
+   "scribble", so each splinter is a closed filled polygon: wide at the root,
+   needle at the tip. Seeded, so the charter always breaks the same way. */
+function sealFractures(cx: number, cy: number, rootR: number, maxR: number, seed = 20260726) {
   let s = seed;
   const rnd = () => (s = (s * 1664525 + 1013904223) % 4294967296) / 4294967296;
-  const paths: string[] = [];
-  for (let i = 0; i < count; i++) {
-    const base = (i / count) * Math.PI * 2 + (rnd() - 0.5) * 0.35;
-    const reach = maxR * (0.5 + rnd() * 0.5);
-    const segs = 4 + Math.floor(rnd() * 3);
-    let d = `M ${cx.toFixed(1)},${cy.toFixed(1)}`;
-    for (let k = 1; k <= segs; k++) {
-      const r = (reach * k) / segs;
-      const a = base + (rnd() - 0.5) * 0.55;
-      d += ` L ${(cx + Math.cos(a) * r).toFixed(1)},${(cy + Math.sin(a) * r).toFixed(1)}`;
+  const xy = (r: number, a: number) => ({ x: cx + Math.cos(a) * r, y: cy + Math.sin(a) * r });
+
+  // A spine of vertices becomes a closed sliver: out along one offset edge,
+  // back along the other, converging to a point at the tip.
+  const taper = (spine: { x: number; y: number }[], w0: number) => {
+    const L: string[] = [], R: string[] = [];
+    for (let i = 0; i < spine.length; i++) {
+      const prev = spine[Math.max(i - 1, 0)], next = spine[Math.min(i + 1, spine.length - 1)];
+      const dx = next.x - prev.x, dy = next.y - prev.y;
+      const len = Math.hypot(dx, dy) || 1;
+      const w = (w0 * (1 - i / (spine.length - 1))) / 2;
+      L.push(`${(spine[i].x - (dy / len) * w).toFixed(1)},${(spine[i].y + (dx / len) * w).toFixed(1)}`);
+      R.push(`${(spine[i].x + (dy / len) * w).toFixed(1)},${(spine[i].y - (dx / len) * w).toFixed(1)}`);
     }
-    paths.push(d);
+    return `M ${L.join(' L ')} L ${R.reverse().join(' L ')} Z`;
+  };
+
+  const shards: string[] = [];
+  const N = 9;
+  for (let i = 0; i < N; i++) {
+    const ray = (i / N) * Math.PI * 2 + (rnd() - 0.5) * 0.38;
+    const reach = rootR + (maxR - rootR) * (0.55 + rnd() * 0.45);
+    const segs = 3 + Math.floor(rnd() * 2);
+    const spine = [xy(rootR * 0.985, ray)];
+    const verts: { r: number; a: number }[] = [];
+    for (let k = 1; k <= segs; k++) {
+      const r = rootR + ((reach - rootR) * k) / segs;
+      const a = ray + (rnd() - 0.5) * (k === segs ? 0.22 : 0.1);
+      spine.push(xy(r, a));
+      verts.push({ r, a });
+    }
+    shards.push(taper(spine, 5 + rnd() * 2.5));
+
+    // Most splinters throw one finer side shard from a mid-spine vertex.
+    if (rnd() > 0.4) {
+      const v = verts[Math.floor(rnd() * (verts.length - 1))];
+      const fa = v.a + (rnd() > 0.5 ? 1 : -1) * (0.5 + rnd() * 0.45);
+      const fr = v.r + (reach - v.r) * (0.35 + rnd() * 0.3);
+      shards.push(taper([xy(v.r, v.a), xy((v.r + fr) / 2, fa), xy(fr, fa + (rnd() - 0.5) * 0.16)], 3));
+    }
   }
-  return paths;
+  return shards;
+}
+
+/* Radiating inlay for the chamber floor: brass hairlines struck from the
+   centre out to the guide band, the way a stone medallion is laid. Deterministic,
+   no randomness: this is architecture, not a sky. */
+function inlayRays(cx: number, cy: number, r0: number, r1: number, count = 48) {
+  return Array.from({ length: count }, (_, i) => {
+    const a = (i / count) * Math.PI * 2 - Math.PI / 2;
+    const major = i % 4 === 0;
+    const from = major ? r0 * 0.72 : r0;
+    return {
+      x1: cx + Math.cos(a) * from, y1: cy + Math.sin(a) * from,
+      x2: cx + Math.cos(a) * r1, y2: cy + Math.sin(a) * r1,
+      major,
+    };
+  });
 }
 
 const benchPath = (g: ChamberGeo, inset = 0) =>
@@ -1679,7 +1787,11 @@ function HallOfFounders({ members, onSeatClick, isAdmin, onClaimSeat }: {
   mains.forEach((m, i) => posById.set(m.id, { x: headXs[i], y: geo.headY + geo.seat * 0.42 }));
   orderedOthers.forEach((m, i) => { const s = stations[i]; if (s) posById.set(m.id, { x: s.x, y: s.y }); });
 
-  const bonds: { key: string; d: string; color: string }[] = [];
+  /* A pairing is engraved into the floor as a concordat: a double brass rule
+     bowed across the chamber, with a small lozenge seal struck at its midpoint
+     carrying the pair's own colour as the gem. Same language as the medallion
+     inlay, so it belongs to the room instead of floating over it. */
+  const bonds: { key: string; d: string; dIn: string; color: string; sx: number; sy: number; ang: number }[] = [];
   const pairSeen = new Set<string>();
   members.forEach(m => {
     if (!m.bestieWith || !m.bestieColor) return;
@@ -1693,9 +1805,16 @@ function HallOfFounders({ members, onSeatClick, isAdmin, onClaimSeat }: {
     const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
     // Bowed toward the middle of the floor so it reads as crossing the room
     // rather than cutting a straight line through the furniture.
+    const c = { x: mx + (fx - mx) * 0.55, y: my + (fy - my) * 0.55 };
+    const cIn = { x: mx + (fx - mx) * 0.60, y: my + (fy - my) * 0.60 };
+    // Midpoint of the quadratic at t=0.5, where the seal is set.
+    const sx = 0.25 * a.x + 0.5 * c.x + 0.25 * b.x;
+    const sy = 0.25 * a.y + 0.5 * c.y + 0.25 * b.y;
     bonds.push({
-      key, color: m.bestieColor,
-      d: `M ${a.x},${a.y} Q ${mx + (fx - mx) * 0.55},${my + (fy - my) * 0.55} ${b.x},${b.y}`,
+      key, color: m.bestieColor, sx, sy,
+      ang: (Math.atan2(b.y - a.y, b.x - a.x) * 180) / Math.PI,
+      d: `M ${a.x},${a.y} Q ${c.x},${c.y} ${b.x},${b.y}`,
+      dIn: `M ${a.x},${a.y} Q ${cIn.x},${cIn.y} ${b.x},${b.y}`,
     });
   });
 
@@ -1706,14 +1825,42 @@ function HallOfFounders({ members, onSeatClick, isAdmin, onClaimSeat }: {
      Every tween is immediateRender:false, so until this actually plays the room
      rests fully drawn instead of waiting on an animation to become visible. */
   const chamberRef = useRef<HTMLDivElement>(null);
-  const ceremonyDone = useRef(false);
+
+  /* War-table tilt: the tilted plane leans a few degrees toward the cursor.
+     Event-driven writes to CSS vars, smoothed by a transform transition — no
+     rAF loop to keep alive. */
+  const tiltable = useRef(false);
+  useEffect(() => {
+    tiltable.current =
+      !window.matchMedia('(prefers-reduced-motion: reduce)').matches &&
+      !window.matchMedia('(pointer: coarse)').matches;
+  }, []);
+  const handleTilt = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    if (!tiltable.current || !chamberRef.current) return;
+    const r = chamberRef.current.getBoundingClientRect();
+    const px = (e.clientX - r.left) / r.width - 0.5;
+    const py = (e.clientY - r.top) / r.height - 0.5;
+    const s = chamberRef.current.style;
+    s.setProperty('--lean-y', `${(px * 6).toFixed(2)}deg`);
+    s.setProperty('--lean-x', `${(py * -3.5).toFixed(2)}deg`);
+    // Cursor as light source for the seat portraits.
+    s.setProperty('--lx', `${(34 + px * 46).toFixed(1)}%`);
+    s.setProperty('--ly', `${(30 + py * 40).toFixed(1)}%`);
+  }, []);
+  const resetTilt = useCallback(() => {
+    chamberRef.current?.style.setProperty('--lean-y', '0deg');
+    chamberRef.current?.style.setProperty('--lean-x', '0deg');
+  }, []);
   const floorCx = (geo.armL + geo.armR) / 2;
   const floorCy = (geo.armTop + geo.armBottom + geo.r) / 2;
-  const cracks = complete ? sealCracks(floorCx, floorCy, 14, geo.r * 0.95) : [];
+  // Sigil geometry: rings sized to clear the SEALED wordmark, splinters rooted
+  // at the outer ring and contained well inside the bench.
+  const sigil = { inner: geo.r * 0.27, tickIn: geo.r * 0.295, tickOut: geo.r * 0.325, outer: geo.r * 0.35 };
+  const shards = complete ? sealFractures(floorCx, floorCy, sigil.outer, geo.r * 0.62) : [];
+  const rays = useMemo(() => inlayRays(floorCx, floorCy, geo.r * 0.30, geo.r * 0.66), [floorCx, floorCy, geo]);
   const rosterKey = `${benchSeats}|${mains.map(m => m.id).join()}|${orderedOthers.map(m => m.id).join()}|${complete}`;
 
   useEffect(() => {
-    if (ceremonyDone.current) return;
     const el = chamberRef.current;
     if (!el) return;
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
@@ -1723,7 +1870,8 @@ function HallOfFounders({ members, onSeatClick, isAdmin, onClaimSeat }: {
 
       tl.fromTo('.plan-bench', { strokeDasharray: 1, strokeDashoffset: 1 },
           { strokeDashoffset: 0, duration: 1.6, ease: 'power3.out' })
-        .fromTo('.plan-echo, .plan-tick', { autoAlpha: 0 }, { autoAlpha: 1, duration: 0.8 }, '-=1.0')
+        .fromTo('.plan-inlay, .inlay-band, .plan-tick', { autoAlpha: 0 }, { autoAlpha: 1, duration: 0.9 }, '-=1.05')
+        .fromTo('.chamber-legend, .chamber-crest', { autoAlpha: 0 }, { autoAlpha: 1, duration: 1.1 }, '-=0.85')
         .fromTo('.plan-numeral', { autoAlpha: 0 }, { autoAlpha: 1, duration: 0.55, stagger: 0.022 }, '-=0.8')
         // Seats arrive in protocol order, down the left arm and around the bend.
         // Animated on .seat and never on .seat-station, whose translate(-50%,-50%)
@@ -1731,32 +1879,44 @@ function HallOfFounders({ members, onSeatClick, isAdmin, onClaimSeat }: {
         .fromTo('.seat', { autoAlpha: 0, y: 14, scale: 0.9 },
           { autoAlpha: 1, y: 0, scale: 1, duration: 0.62, ease: 'power3.out', stagger: 0.038 }, '-=0.85')
         .fromTo('.chamber-mark-inner', { autoAlpha: 0 }, { autoAlpha: 1, duration: 0.7 }, '-=0.4')
-        .fromTo('.plan-bond', { autoAlpha: 0 }, { autoAlpha: 0.55, duration: 0.8 }, '-=0.3');
+        .fromTo('.plan-bond-group', { autoAlpha: 0 }, { autoAlpha: 1, duration: 0.8 }, '-=0.3');
 
       if (complete) {
-        /* THE SEAL. The bench flares white, a shock rolls out from the centre,
-           the floor fractures, and the mark stamps down into it. The fractures
-           don't heal: they bank down to a permanent etch. */
+        /* THE SEAL. The bench flares, a shock rolls out from the centre, the
+           sigil engraves itself — rings draw, the fifteen seat-ticks ignite in
+           order — the mark stamps down, and the floor splinters outward from
+           the outer ring. Then all of it burns off: the seal is witnessed once
+           and leaves the floor clean. */
         tl.addLabel('seal', '-=0.2')
-          .to('.plan-bench', { stroke: '#eaf2ff', duration: 0.1 }, 'seal')
+          .to('.plan-bench', { stroke: '#fff6da', duration: 0.1 }, 'seal')
           .fromTo('.seal-flash', { autoAlpha: 0 }, { autoAlpha: 1, duration: 0.1 }, 'seal')
           .fromTo('.seal-wave', { attr: { r: 6 }, autoAlpha: 0.85 },
             { attr: { r: geo.r * 1.02 }, autoAlpha: 0, duration: 1.15, ease: 'power2.out' }, 'seal')
-          .fromTo('.seal-crack-glow', { strokeDashoffset: 1, autoAlpha: 0.9 },
-            { strokeDashoffset: 0, duration: 0.42, ease: 'power2.out', stagger: 0.03 }, 'seal+=0.04')
-          .fromTo('.seal-crack', { strokeDashoffset: 1, autoAlpha: 1 },
-            { strokeDashoffset: 0, duration: 0.4, ease: 'power2.out', stagger: 0.03 }, 'seal+=0.06')
+          .fromTo('.sigil-ring', { strokeDashoffset: 1, autoAlpha: 1 },
+            { strokeDashoffset: 0, duration: 0.7, ease: 'power2.inOut', stagger: 0.12 }, 'seal')
+          .fromTo('.sigil-tick', { autoAlpha: 0 },
+            { autoAlpha: 1, duration: 0.16, stagger: 0.028 }, 'seal+=0.25')
           .fromTo('.chamber-mark-inner', { scale: 1.65 },
             { scale: 1, duration: 0.8, ease: 'power4.out' }, 'seal')
+          .fromTo('.seal-shard', { autoAlpha: 0 }, { autoAlpha: 0.9, duration: 0.1 }, 'seal+=0.1')
+          .fromTo('.fracture-mask', { attr: { r: sigil.outer * 0.9 } },
+            { attr: { r: geo.r * 0.72 }, duration: 0.55, ease: 'power3.out' }, 'seal+=0.12')
           .to('.seal-flash', { autoAlpha: 0, duration: 0.9, ease: 'power2.out' }, 'seal+=0.1')
-          .to('.plan-bench', { stroke: 'var(--azure-bright)', duration: 0.9 }, 'seal+=0.12')
-          .to('.seal-crack-glow', { autoAlpha: 0, duration: 1.0 }, 'seal+=0.55')
-          .to('.seal-crack', { autoAlpha: 0.2, duration: 1.1 }, 'seal+=0.6');
+          .to('.plan-bench', { stroke: 'url(#chamber-brass)', duration: 0.9 }, 'seal+=0.12')
+          // The seal is a moment, not a residue: after a beat to be seen, the
+          // fractures die first, then the sigil, leaving the floor clean.
+          .to('.seal-shard', { autoAlpha: 0, duration: 1.2, ease: 'power2.in' }, 'seal+=1.1')
+          .to('.sigil-tick, .sigil-ring', { autoAlpha: 0, duration: 1.4, ease: 'power2.in' }, 'seal+=1.35');
       }
 
+      // Plays every time the chamber comes into view, from either direction,
+      // and reverses smoothly as it leaves back out the way it came — not a
+      // one-shot: scroll away and back, and the room convenes again.
       ScrollTrigger.create({
-        trigger: el, start: 'top 85%', once: true,
-        onEnter: () => { ceremonyDone.current = true; tl.play(); },
+        trigger: el, start: 'top 85%', end: 'bottom top',
+        onEnter: () => tl.play(),
+        onEnterBack: () => tl.play(),
+        onLeaveBack: () => tl.reverse(),
       });
     }, el);
 
@@ -1840,13 +2000,70 @@ function HallOfFounders({ members, onSeatClick, isAdmin, onClaimSeat }: {
           ref={chamberRef}
           className={`chamber ${complete ? 'sealed' : ''} ${editing ? 'editing' : ''}`}
           style={{ aspectRatio: `${geo.w} / ${geo.h}` }}
+          onMouseMove={handleTilt}
+          onMouseLeave={resetTilt}
         >
           <svg className="chamber-plan" viewBox={`0 0 ${geo.w} ${geo.h}`} aria-hidden="true" focusable="false">
-            <path className="plan-floor" d={`${benchPath(geo)} Z`} />
-            {/* Concentric guides, kept inboard of the numeral band so they
-                never run through a seat number. */}
-            <path className="plan-echo" d={benchPath(geo, 192)} />
-            <path className="plan-echo is-faint" d={benchPath(geo, 262)} />
+            <defs>
+              {/* Polished stone, lit from above the far rail. */}
+              <radialGradient id="chamber-stone" cx="50%" cy="42%" r="76%">
+                <stop offset="0%" stopColor="rgba(28,44,92,0.92)" />
+                <stop offset="46%" stopColor="rgba(16,27,60,0.95)" />
+                <stop offset="100%" stopColor="rgba(8,14,34,0.98)" />
+              </radialGradient>
+              {/* Brass, for the inlay and the rail. */}
+              <linearGradient id="chamber-brass" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stopColor="#8a6a26" />
+                <stop offset="26%" stopColor="#e6c675" />
+                <stop offset="50%" stopColor="#fff2c8" />
+                <stop offset="74%" stopColor="#d4ab4e" />
+                <stop offset="100%" stopColor="#7d5f21" />
+              </linearGradient>
+              <clipPath id="chamber-floor-clip">
+                <path d={`${benchPath(geo)} Z`} />
+              </clipPath>
+            </defs>
+
+            {/* The floor: polished stone within the rail, with a brass
+                medallion inlaid at the centre of the chamber. */}
+            <path className="plan-floor" d={`${benchPath(geo)} Z`} fill="url(#chamber-stone)" />
+            <g clipPath="url(#chamber-floor-clip)">
+              <g className="plan-inlay">
+                {rays.map((ry, i) => (
+                  <line key={i} className={`inlay-ray ${ry.major ? 'is-major' : ''}`}
+                    x1={ry.x1} y1={ry.y1} x2={ry.x2} y2={ry.y2} />
+                ))}
+              </g>
+              {/* Concentric bands: the moulding of the medallion. */}
+              <circle className="inlay-band" cx={floorCx} cy={floorCy} r={geo.r * 0.30} />
+              <circle className="inlay-band is-hair" cx={floorCx} cy={floorCy} r={geo.r * 0.315} />
+              <circle className="inlay-band" cx={floorCx} cy={floorCy} r={geo.r * 0.66} />
+              <circle className="inlay-band is-hair" cx={floorCx} cy={floorCy} r={geo.r * 0.675} />
+            </g>
+
+            {/* The club's name struck around the medallion, and the emblem
+                engraved at its centre. */}
+            <path id="chamber-legend-arc" fill="none" stroke="none"
+              d={`M ${floorCx - geo.r * 0.485},${floorCy} A ${geo.r * 0.485},${geo.r * 0.485} 0 0 1 ${floorCx + geo.r * 0.485},${floorCy}`} />
+            <text className="chamber-legend">
+              <textPath href="#chamber-legend-arc" startOffset="50%" textAnchor="middle">
+                YOUHUA MODEL UNITED NATIONS
+              </textPath>
+            </text>
+            {/* The lower legend needs sweep-flag 0 so the arc runs left to
+                right along the BOTTOM; with flag 1 the path runs right to left
+                and the glyphs render mirrored. */}
+            <path id="chamber-legend-arc-b" fill="none" stroke="none"
+              d={`M ${floorCx - geo.r * 0.485},${floorCy} A ${geo.r * 0.485},${geo.r * 0.485} 0 0 0 ${floorCx + geo.r * 0.485},${floorCy}`} />
+            <text className="chamber-legend is-lower">
+              <textPath href="#chamber-legend-arc-b" startOffset="50%" textAnchor="middle">
+                友華模擬聯合國 · ESTABLISHED 2026
+              </textPath>
+            </text>
+            <image className="chamber-crest" href="/un-emblem.svg"
+              x={floorCx - geo.r * 0.20} y={floorCy - geo.r * 0.20}
+              width={geo.r * 0.40} height={geo.r * 0.40} />
+
             {/* Station marks: a rule struck inward off the bench, and the seat
                 number engraved on the floor beside it. Keeping the numeral here
                 rather than on the nameplate is both truer to a plan drawing and
@@ -1865,21 +2082,48 @@ function HallOfFounders({ members, onSeatClick, isAdmin, onClaimSeat }: {
                 >{i + 1}</text>
               </g>
             ))}
-            <path className="plan-bench" d={benchPath(geo)} pathLength={1} />
+            {/* The rail: a brass moulding, drawn as a double line the way a
+                section drawing renders a solid member. */}
+            <path className="plan-rail-outer" d={benchPath(geo, -9)} />
+            <path className="plan-bench" d={benchPath(geo)} pathLength={1} stroke="url(#chamber-brass)" />
             {bonds.map(b => (
-              <path key={b.key} className="plan-bond" d={b.d} style={{ stroke: b.color }} />
+              <g key={b.key} className="plan-bond-group">
+                <path className="plan-bond" d={b.d} />
+                <path className="plan-bond is-inner" d={b.dIn} />
+                {/* The seal: a struck lozenge holding the pair's colour. */}
+                <g className="bond-seal" transform={`translate(${b.sx} ${b.sy}) rotate(${b.ang})`}>
+                  <rect className="bond-seal-plate" x={-7} y={-7} width={14} height={14} transform="rotate(45)" />
+                  <rect className="bond-seal-gem" x={-3.4} y={-3.4} width={6.8} height={6.8}
+                    transform="rotate(45)" style={{ fill: b.color, color: b.color }} />
+                </g>
+              </g>
             ))}
 
             {complete && (
               <g className="seal-fx">
                 <path className="seal-flash" d={`${benchPath(geo)} Z`} />
                 <circle className="seal-wave" cx={floorCx} cy={floorCy} r={6} />
-                {cracks.map((d, i) => (
-                  <path key={`glow-${i}`} className="seal-crack-glow" d={d} pathLength={1} strokeDasharray={1} strokeDashoffset={1} />
-                ))}
-                {cracks.map((d, i) => (
-                  <path key={`crack-${i}`} className="seal-crack" d={d} pathLength={1} strokeDasharray={1} strokeDashoffset={1} />
-                ))}
+                <circle className="sigil-ring sigil-inner" cx={floorCx} cy={floorCy} r={sigil.inner}
+                  pathLength={1} strokeDasharray={1} strokeDashoffset={1} />
+                <circle className="sigil-ring sigil-outer" cx={floorCx} cy={floorCy} r={sigil.outer}
+                  pathLength={1} strokeDasharray={1} strokeDashoffset={1} />
+                {/* Fifteen ticks between the rings — one per founding seat,
+                    ignited in order as the seats are counted into the record. */}
+                {Array.from({ length: MAX }, (_, i) => {
+                  const a = (i / MAX) * Math.PI * 2 - Math.PI / 2;
+                  return (
+                    <line key={`tick-${i}`} className="sigil-tick"
+                      x1={floorCx + Math.cos(a) * sigil.tickIn} y1={floorCy + Math.sin(a) * sigil.tickIn}
+                      x2={floorCx + Math.cos(a) * sigil.tickOut} y2={floorCy + Math.sin(a) * sigil.tickOut} />
+                  );
+                })}
+                {/* Splinters grow outward through an expanding radial wipe. */}
+                <mask id="seal-fracture-reveal">
+                  <circle className="fracture-mask" cx={floorCx} cy={floorCy} r={sigil.outer} fill="#fff" />
+                </mask>
+                <g mask="url(#seal-fracture-reveal)">
+                  {shards.map((d, i) => <path key={`shard-${i}`} className="seal-shard" d={d} />)}
+                </g>
               </g>
             )}
           </svg>
@@ -1887,8 +2131,9 @@ function HallOfFounders({ members, onSeatClick, isAdmin, onClaimSeat }: {
           <div
             className="chamber-mark"
             aria-hidden="true"
-            /* Centred on the enclosed floor, which sits lower than the box itself. */
-            style={{ top: `${((geo.armTop + geo.armBottom + geo.r) / 2 / geo.h) * 100}%` }}
+            /* Below the crest, inside the medallion's outer band: the emblem
+               holds the centre, the mark sits under it. */
+            style={{ top: `${((floorCy + geo.r * 0.45) / geo.h) * 100}%` }}
           >
             {/* Inner wrapper so the seal can scale the mark without fighting the
                 translate(-50%,-50%) that centres it. */}
@@ -1898,13 +2143,18 @@ function HallOfFounders({ members, onSeatClick, isAdmin, onClaimSeat }: {
             </span>
           </div>
 
+          {/* .seat-stand is the 3D joint: the chamber plane is tilted back like
+              a table, and the stand counter-rotates so each founder stands
+              upright on it. GSAP keeps animating .seat inside, untouched. */}
           {mains.map((m, i) => (
             <div
               className="seat-station is-head"
               key={m.id}
               style={{ left: `${(headXs[i] / geo.w) * 100}%`, top: `${(geo.headY / geo.h) * 100}%` }}
             >
-              <Seat member={m} isMain onClick={handleSeatClick} selected={selected.includes(m.id)} editing={editing} />
+              <div className="seat-stand">
+                <Seat member={m} isMain onClick={handleSeatClick} selected={selected.includes(m.id)} editing={editing} />
+              </div>
             </div>
           ))}
 
@@ -1916,9 +2166,11 @@ function HallOfFounders({ members, onSeatClick, isAdmin, onClaimSeat }: {
                 key={m ? m.id : `vacant-${i}`}
                 style={{ left: `${(s.x / geo.w) * 100}%`, top: `${(s.y / geo.h) * 100}%` }}
               >
-                {m
-                  ? <Seat member={m} seatNo={i + 1} onClick={handleSeatClick} selected={selected.includes(m.id)} editing={editing} />
-                  : <VacantSeat seatNo={i + 1} onClaim={editing ? undefined : onClaimSeat} />}
+                <div className="seat-stand">
+                  {m
+                    ? <Seat member={m} seatNo={i + 1} onClick={handleSeatClick} selected={selected.includes(m.id)} editing={editing} />
+                    : <VacantSeat seatNo={i + 1} onClaim={editing ? undefined : onClaimSeat} />}
+                </div>
               </div>
             );
           })}
@@ -1930,6 +2182,282 @@ function HallOfFounders({ members, onSeatClick, isAdmin, onClaimSeat }: {
               {remaining} seat{remaining !== 1 ? 's' : ''} still unclaimed.{' '}
               {onClaimSeat ? 'Take one, or open any founder to read their dossier.' : 'Open any founder to read their dossier.'}
             </p>}
+      </div>
+    </section>
+  );
+}
+
+/* ─── The Secretariat: the Round Table ───
+   Every office holds an equal seat on one ring around the club's emblem; no
+   office sits above another. The ring is a 3D carousel driven by scroll: the
+   stage pins, and as you scroll each seat swings to the front and is
+   introduced. A person may hold several offices; an office may seat several
+   people (the two Presidents share one chair). */
+type RosterPerson =
+  | { kind: 'member'; person: EnrichedMember }
+  | { kind: 'delegate'; person: Delegate };
+
+const SEAT_SCROLL = 420; // px of scroll each seat gets at the front while pinned
+
+/* Sphere shading laid over every body: a highlight that tracks the cursor
+   (--lx/--ly are set on the world), a terminator shadow, and a rim light. */
+const OrbShade = () => <span className="orb-shade" aria-hidden="true" />;
+
+function SecretariatSection({ members, delegates, isAdmin, onSelect }: {
+  members: EnrichedMember[];
+  delegates: Delegate[];
+  isAdmin: boolean;
+  onSelect: (p: RosterPerson) => void;
+}) {
+  const people: RosterPerson[] = [
+    ...members.map(m => ({ kind: 'member', person: m } as RosterPerson)),
+    ...delegates.map(d => ({ kind: 'delegate', person: d } as RosterPerson)),
+  ];
+  const holdersOf = (id: string) => people.filter(p => rolesOf(p.person).includes(id));
+  const seats = ROLES
+    .filter(r => r.id !== 'candidate' || holdersOf('candidate').length > 0 || isAdmin)
+    .map(r => ({ role: r, holders: holdersOf(r.id) }));
+  const n = seats.length;
+  const floor = people.filter(p => rolesOf(p.person).length === 0);
+  const tableRays = useMemo(() => inlayRays(600, 600, 190, 330, 60), []);
+
+  /* Scroll turns the ring. The stage pins for n × SEAT_SCROLL pixels while
+     --theta is scrubbed from 0 to the angle that brings the last seat front;
+     the seat nearest the camera is marked so its brief can surface. */
+  const stageRef = useRef<HTMLDivElement>(null);
+  const worldRef = useRef<HTMLDivElement>(null);
+  const ringRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<ScrollTrigger | null>(null);
+  const [front, setFront] = useState(0);
+
+  /* No entrance ceremony here: the table is simply set, always, the moment it
+     mounts. The turning itself — bound directly to scroll position, forward
+     and back, every pass — is the animation this room earns; it doesn't need
+     a one-off light show in front of it too. */
+  useEffect(() => {
+    const stage = stageRef.current, ring = ringRef.current;
+    if (!stage || !ring || n < 2) return;
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    const turn = gsap.fromTo(ring, { '--theta': '0deg' }, { '--theta': `${(-360 * (n - 1)) / n}deg`, ease: 'none' });
+    const st = ScrollTrigger.create({
+      trigger: stage, start: 'top top+=72', end: `+=${n * SEAT_SCROLL}`,
+      pin: true, scrub: 1.1, anticipatePin: 1, animation: turn,
+      onUpdate: self => {
+        const i = Math.round(self.progress * (n - 1));
+        setFront(prev => (prev === i ? prev : i));
+      },
+    });
+    triggerRef.current = st;
+    return () => { st.kill(); turn.kill(); triggerRef.current = null; };
+  }, [n]);
+
+  const jumpTo = (i: number) => {
+    const st = triggerRef.current;
+    if (!st || n < 2) return;
+    const y = st.start + (i / (n - 1)) * (st.end - st.start);
+    if (lenisInstance) lenisInstance.scrollTo(y, { duration: 1.1 });
+    else window.scrollTo({ top: y, behavior: 'smooth' });
+  };
+
+  /* The docket cross-dissolves between offices instead of popping: the
+     outgoing plaque gets a brief, fast lift-off before the incoming one is
+     even mounted, rather than vanishing the instant the ring settles on a new
+     seat. If the table keeps turning past it mid-transition, this simply
+     re-targets — only where the user actually stops ever plays an entrance. */
+  const [docketFront, setDocketFront] = useState(0);
+  const [docketLeaving, setDocketLeaving] = useState(false);
+  useEffect(() => {
+    if (front === docketFront) return;
+    setDocketLeaving(true);
+    const t = setTimeout(() => { setDocketFront(front); setDocketLeaving(false); }, 220);
+    return () => clearTimeout(t);
+  }, [front, docketFront]);
+
+  /* The world leans toward the cursor, and the cursor is the light source. */
+  const leanable = useRef(false);
+  useEffect(() => {
+    leanable.current =
+      !window.matchMedia('(prefers-reduced-motion: reduce)').matches &&
+      !window.matchMedia('(pointer: coarse)').matches;
+  }, []);
+  const onLean = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    if (!leanable.current || !worldRef.current || !stageRef.current) return;
+    const r = stageRef.current.getBoundingClientRect();
+    const px = (e.clientX - r.left) / r.width - 0.5;
+    const py = (e.clientY - r.top) / r.height - 0.5;
+    const s = worldRef.current.style;
+    s.setProperty('--lean-y', `${(px * 9).toFixed(2)}deg`);
+    s.setProperty('--lx', `${(34 + px * 46).toFixed(1)}%`);
+    s.setProperty('--ly', `${(30 + py * 40).toFixed(1)}%`);
+  }, []);
+  const offLean = useCallback(() => { worldRef.current?.style.setProperty('--lean-y', '0deg'); }, []);
+
+  const ARC = 'M 52,600 A 548,548 0 1 1 1148,600 A 548,548 0 1 1 52,600';
+
+  return (
+    <section className="section secretariat" id="secretariat">
+      <span className="section-beam" aria-hidden="true" />
+      <div className="section-eyebrow"><Decrypt text="The Secretariat" /></div>
+      <h2 className="section-title">The <span className="gold-accent">Round Table</span></h2>
+      <p className="secretariat-sub">Every office, an equal seat. Scroll to turn the table · 社團幹部</p>
+
+      <div className="rt-stage" ref={stageRef} onMouseMove={onLean} onMouseLeave={offLean}>
+        <div className="rt-world" ref={worldRef}>
+          {/* The table top, lying flat: nebula, stars, and the club's name engraved around the rim. */}
+          <div className="rt-table">
+            <svg className="rt-table-art" viewBox="0 0 1200 1200" aria-hidden="true" focusable="false">
+              {/* Brass inlay, matching the council chamber: this is a
+                  council table, not a planetarium. Always solid — no reveal. */}
+              {tableRays.map((ry, i) => (
+                <line key={i} className={`inlay-ray ${ry.major ? 'is-major' : ''}`}
+                  x1={ry.x1} y1={ry.y1} x2={ry.x2} y2={ry.y2} />
+              ))}
+              <circle className="inlay-band" cx={600} cy={600} r={330} />
+              <circle className="inlay-band is-hair" cx={600} cy={600} r={344} />
+              <path id="rt-rim-arc" d={ARC} fill="none" stroke="none" />
+              <text className="rt-table-text">
+                <textPath href="#rt-rim-arc" startOffset="0">
+                  YOUHUA MODEL UNITED NATIONS · THE SECRETARIAT · 秘書處 ·
+                </textPath>
+              </text>
+            </svg>
+          </div>
+          <div className="rt-pool" aria-hidden="true" />
+
+          {/* The club's emblem at the centre: the table belongs to the club, not to a chair. */}
+          <div className="rt-core" aria-hidden="true">
+            <span className="rt-core-ring" />
+            <img src="/un-emblem.svg" alt="" className="rt-core-emblem" />
+          </div>
+
+          <div className="rt-ring" ref={ringRef} style={{ ['--theta' as any]: '0deg' }}>
+            {seats.map((seat, i) => {
+              const a = (i * 360) / n;
+              const { role, holders } = seat;
+              return (
+                <Fragment key={role.id}>
+                  <span className="rt-shadow" aria-hidden="true" style={{ ['--a' as any]: `${a}deg` }} />
+                  <div
+                    className={`rt-seat ${i === front ? 'is-front' : ''}`}
+                    style={{ ['--a' as any]: `${a}deg`, ['--office' as any]: role.hue }}
+                    aria-hidden={i !== front}
+                  >
+                    <div className="rt-seat-inner">
+                      <div className="rt-medals">
+                        {holders.length > 0 ? holders.map(h => (
+                          <button
+                            key={`${h.kind}-${h.person.id}`}
+                            className="rt-medal"
+                            onClick={() => onSelect(h)}
+                            title={`${h.person.fullName} · ${role.zh}`}
+                            aria-label={`${h.person.fullName}, ${role.en}`}
+                            tabIndex={i === front ? 0 : -1}
+                          >
+                            {h.person.avatar
+                              ? <img src={h.person.avatar} alt="" />
+                              : <span className="rt-initial" aria-hidden="true">{(h.person.firstName || '?').charAt(0).toUpperCase()}</span>}
+                            <OrbShade />
+                          </button>
+                        )) : (
+                          <div className="rt-medal is-vacant" title={`${role.en} · to be appointed`}>
+                            <span className="rt-glyph" aria-hidden="true">{role.glyph}</span>
+                            <OrbShade />
+                          </div>
+                        )}
+                      </div>
+                      {/* Only the office's name rides the ring. Everything else
+                          lives in the flat brief below: upright planes inside a
+                          preserve-3d world interleave with the table by depth,
+                          so any text here would be cut by the gold rim. */}
+                      <div className="rt-office-zh">{role.zh}</div>
+                    </div>
+                  </div>
+                </Fragment>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* The docket: flat 2D and inside the pinned stage, so the table's rim
+            can never cut it and it can't scroll away while the ring turns.
+            Built as a plaque set down on the table when an office comes to
+            front — a docket number stamped in brass at the spine, not a
+            centered icon-over-heading card. Cross-dissolves between offices
+            via docketFront/docketLeaving above, rather than popping: re-keyed
+            only once the outgoing plaque has had its exit, so the CSS
+            entrance (rtTabling) plays on genuine arrival, not every tick. */}
+        {seats[docketFront] && (
+          <div className={`rt-docket ${docketLeaving ? 'is-leaving' : ''}`}
+            key={seats[docketFront].role.id} style={{ ['--office' as any]: seats[docketFront].role.hue }}>
+            <div className="rt-docket-spine" aria-hidden="true">
+              <span className="rt-docket-seal">{seats[docketFront].role.glyph}</span>
+              <span className="rt-docket-no">{String(docketFront + 1).padStart(2, '0')}</span>
+            </div>
+            <div className="rt-docket-body">
+              <div className="rt-docket-head">
+                <h3 className="rt-docket-zh">{seats[docketFront].role.zh}</h3>
+                <span className="rt-docket-en">{seats[docketFront].role.en}</span>
+              </div>
+              <p className="rt-docket-duty">{seats[docketFront].role.duty}</p>
+              <div className="rt-docket-roster">
+                <span className="rt-docket-roster-label">Held by</span>
+                {seats[docketFront].holders.length > 0 ? (
+                  <ul className="rt-docket-list">
+                    {seats[docketFront].holders.map(h => (
+                      <li key={`${h.kind}-${h.person.id}`}>
+                        <button className="rt-docket-person" onClick={() => onSelect(h)}>{h.person.fullName}</button>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <div className="rt-docket-open">seat unassigned · 待任命</div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Which seat is at the front; each dot turns the table to that office. */}
+        <div className="rt-dots" role="tablist" aria-label="Offices">
+          {seats.map((seat, i) => (
+            <button
+              key={seat.role.id}
+              className={`rt-dot ${i === front ? 'on' : ''}`}
+              style={{ ['--office' as any]: seat.role.hue }}
+              role="tab"
+              aria-selected={i === front}
+              aria-label={`${seat.role.en} · ${seat.role.zh}`}
+              onClick={() => jumpTo(i)}
+            />
+          ))}
+        </div>
+      </div>
+
+      <div className="assembly-band">
+        <div className="band-title">The Floor · 一般社員</div>
+        {floor.length > 0 ? (
+          <div className="assembly-grid">
+            {floor.map(h => {
+              const m = h.person;
+              return (
+                <button key={`${h.kind}-${m.id}`} className="assembly-chip" onClick={() => onSelect(h)} title={m.fullName}>
+                  <span className="assembly-orb">
+                    {m.avatar
+                      ? <img src={m.avatar} className="assembly-avatar" alt="" />
+                      : <span className="assembly-avatar is-initial" aria-hidden="true">{(m.firstName || '?').charAt(0).toUpperCase()}</span>}
+                    <OrbShade />
+                  </span>
+                  <span className="assembly-name">
+                    {h.kind === 'member' && <i className="assembly-mark" aria-hidden="true">◆</i>}
+                    {m.firstName}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        ) : (
+          <p className="orr-empty-note">Every member currently holds an office.</p>
+        )}
       </div>
     </section>
   );
@@ -2043,6 +2571,21 @@ function useScrollFX() {
       reveal('.pillar',     '.pillars',      { y: 48, stagger: 0.1 });
       reveal('.stat-item',  '.stats-row',    { y: 44, stagger: 0.1 });
       reveal('.pull-quote', '.pull-quote',   { y: 56 });
+      /* The orrery runs its own entrance from inside SecretariatSection: its
+         planets are replaced wholesale when the roster loads. */
+      reveal('.assembly-band', '.assembly-band', { y: 30 });
+
+      /* SECTIONS ARRIVE IN 3D: each one lies well back below the fold and
+         rights itself as it rises, hinged at its bottom edge. Never hidden, so
+         a mis-measure can only leave it dim. The Secretariat is excluded: it
+         pins its stage, and position:fixed cannot live inside a transformed
+         ancestor. */
+      gsap.utils.toArray<HTMLElement>('.section:not(.secretariat), .hall, .delegation').forEach((sec) => {
+        gsap.fromTo(sec,
+          { rotateX: 16, y: 120, scale: 0.94, autoAlpha: 0.5, transformPerspective: 1400, transformOrigin: '50% 100%' },
+          { rotateX: 0, y: 0, scale: 1, autoAlpha: 1, ease: 'none',
+            scrollTrigger: { trigger: sec, start: 'top 100%', end: 'top 48%', scrub: 0.6 } });
+      });
 
       /* EDITORIAL MASK — section titles rise out of a clip as they enter */
       gsap.utils.toArray<HTMLElement>('.section-title').forEach((el) => {
@@ -2332,12 +2875,13 @@ function DelegateModal({ onClose, onSuccess, preAuth }: {
   );
 }
 
-function DelegateDetailModal({ delegate, onClose, isAdmin, onAdminEdit, onDelete }: {
+function DelegateDetailModal({ delegate, onClose, isAdmin, onAdminEdit, onDelete, onSetRoles }: {
   delegate: Delegate;
   onClose: () => void;
   isAdmin: boolean;
   onAdminEdit: (d: Delegate) => void;
   onDelete: (id: string, name: string) => void;
+  onSetRoles: (id: string, roles: string[]) => void;
 }) {
   return (
     <Modal onClose={onClose} overlayClass="detail-overlay" panelClass="detail-card"
@@ -2349,10 +2893,12 @@ function DelegateDetailModal({ delegate, onClose, isAdmin, onAdminEdit, onDelete
         <div className="detail-name">{delegate.fullName}</div>
         <div className="detail-meta">Grade {delegate.grade} · Class {delegate.classGroup}</div>
         <div className="detail-badge">◆ Founding Delegate #{delegate.delegateNumber}</div>
+        <OfficeBadges roles={rolesOf(delegate)} />
         {delegate.bio && <div className="detail-bio">"{delegate.bio}"</div>}
         {isAdmin && (
           <div className="admin-panel">
             <div className="admin-panel-label">◆ Administrator Controls</div>
+            <RoleToggles value={rolesOf(delegate)} onChange={(roles) => onSetRoles(delegate.id, roles)} />
             <div className="admin-panel-actions">
               <button className="admin-act" onClick={() => onAdminEdit(delegate)}>Edit Photo &amp; Quote</button>
               <button className="admin-act danger" onClick={() => onDelete(delegate.id, delegate.fullName)}>Remove Delegate</button>
@@ -2493,6 +3039,18 @@ export default function App() {
       danger: true,
       onConfirm: async () => { await removeDelegate(id); },
     });
+  };
+
+  /* Appointments. The realtime listeners refresh the roster; the open dossier
+     holds its own snapshot, so it gets patched locally to reflect the change
+     without closing. */
+  const handleSetMemberRoles = async (id: string, roles: string[]) => {
+    await setMemberRoles(id, roles);
+    setSelectedFounder(prev => (prev && prev.id === id ? { ...prev, roles, role: undefined } : prev));
+  };
+  const handleSetDelegateRoles = async (id: string, roles: string[]) => {
+    await setDelegateRoles(id, roles);
+    setSelectedDelegate(prev => (prev && prev.id === id ? { ...prev, roles, role: undefined } : prev));
   };
 
   const handleSuccess = (m: Member) => {
@@ -2707,6 +3265,17 @@ export default function App() {
         onClaimSeat={!full && !loggedInUser && !loggedInDelegate ? () => startAuth('claim') : undefined}
       />
 
+      {/* ③¼ The Secretariat: offices and the floor */}
+      <SecretariatSection
+        members={enrichedMembers}
+        delegates={delegates}
+        isAdmin={isAdmin}
+        onSelect={(p) => {
+          if (p.kind === 'member') setSelectedFounder(p.person as EnrichedMember);
+          else setSelectedDelegate(p.person as Delegate);
+        }}
+      />
+
       {/* ③½ Founding Delegates */}
       <DelegationSection
         delegates={delegates}
@@ -2761,6 +3330,7 @@ export default function App() {
             setSelectedFounder(null);
           }}
           onDelete={requestRemoveMember}
+          onSetRoles={handleSetMemberRoles}
         />
       )}
       {certificate && <Certificate member={certificate} onClose={() => setCertificate(null)} />}
@@ -2797,6 +3367,7 @@ export default function App() {
           isAdmin={isAdmin}
           onAdminEdit={(d) => { setSelectedDelegate(null); setAdminEditDelegate(d); }}
           onDelete={requestRemoveDelegate}
+          onSetRoles={handleSetDelegateRoles}
         />
       )}
 

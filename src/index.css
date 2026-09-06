@@ -997,10 +997,12 @@ body.intro-active .intro-scan {
    HALL OF FOUNDERS
 ═══════════════════════════════════════════ */
 .hall {
-  background: linear-gradient(180deg, transparent 0%, rgba(12,24,56,0.35) 50%, transparent 100%);
+  /* Radial only. A 180deg wash on a max-width box paints a hard vertical edge
+     where the box ends; a centred pool fades out before any edge. */
+  background: radial-gradient(ellipse 54% 48% at 50% 56%, rgba(58,48,22,0.26) 0%, rgba(22,34,74,0.14) 42%, transparent 74%);
   padding: 8rem 1.5rem;
 }
-.hall-inner { max-width: 960px; margin: 0 auto; text-align: center; }
+.hall-inner { max-width: 960px; margin: 0 auto; text-align: center; perspective: 1500px; }
 .hall-subtitle { font-size: 0.95rem; color: var(--silver); font-style: italic; margin-bottom: 1.5rem; letter-spacing: 0.02em; }
 .hall-divider { width: 60px; height: 1px; background: linear-gradient(90deg, transparent, rgba(76,141,255,0.5), transparent); margin: 0 auto 2.5rem; }
 /* ═══════════════════════════════════════════
@@ -1014,6 +1016,12 @@ body.intro-active .intro-scan {
   width: 100%;
   max-width: 840px;
   margin: 0 auto;
+  /* The orrery: the whole plane lies back like a war table, and leans a few
+     degrees toward the cursor. Seats counter-rotate via .seat-stand. */
+  --tilt: 24deg;
+  transform: rotateX(calc(var(--tilt) + var(--lean-x, 0deg))) rotateY(var(--lean-y, 0deg));
+  transform-style: preserve-3d;
+  transition: transform 0.6s cubic-bezier(0.16, 1, 0.3, 1);
 }
 .chamber-plan {
   position: absolute;
@@ -1022,36 +1030,90 @@ body.intro-active .intro-scan {
   height: 100%;
   overflow: visible;
 }
-.plan-floor { fill: rgba(76,141,255,0.045); transition: fill 0.6s ease; }
-.plan-echo { fill: none; stroke: rgba(76,141,255,0.16); stroke-width: 1.25; }
-.plan-echo.is-faint { stroke: rgba(76,141,255,0.08); }
-.plan-tick { stroke: rgba(132,182,255,0.26); stroke-width: 1.5; }
-.plan-numeral {
-  fill: var(--silver-dim);
+.plan-floor { transition: opacity 0.6s ease; }
+
+/* ─── Chamber material ───
+   Polished stone, brass inlay, engraved legend. No stars: this is a council
+   chamber, and the room should read as stone and metal under raking light. */
+.plan-inlay { mix-blend-mode: screen; }
+.inlay-ray {
+  stroke: rgba(214,176,96,0.16);
+  stroke-width: 0.9;
+}
+.inlay-ray.is-major { stroke: rgba(240,208,132,0.30); stroke-width: 1.4; }
+.inlay-band {
+  fill: none;
+  stroke: rgba(226,190,112,0.34);
+  stroke-width: 1.4;
+}
+.inlay-band.is-hair { stroke: rgba(226,190,112,0.14); stroke-width: 0.8; }
+.chamber-legend {
   font-family: 'Epilogue', sans-serif;
-  font-size: 20px;
-  font-weight: 500;
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: 6.5px;
+  fill: rgba(240,214,150,0.60);
+}
+/* The emblem, engraved into the stone rather than printed on it: sepia maps
+   the white artwork onto brass, and the low opacity keeps it a surface
+   treatment instead of a logo sitting on top. */
+.chamber-crest {
+  opacity: 0.4;
+  filter: sepia(1) saturate(2.4) hue-rotate(-10deg) brightness(0.92);
+}
+.chamber.sealed .chamber-crest { opacity: 0.56; }
+.chamber-legend.is-lower { font-size: 15px; letter-spacing: 5px; }
+/* The rail's outer moulding line, inboard of the brass. */
+.plan-rail-outer {
+  fill: none;
+  stroke: rgba(226,190,112,0.20);
+  stroke-width: 1;
+}
+.plan-tick { stroke: rgba(226,190,112,0.38); stroke-width: 1.5; }
+.plan-numeral {
+  fill: rgba(240,214,150,0.72);
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 23px;
+  font-weight: 600;
   letter-spacing: 0.04em;
   font-variant-numeric: tabular-nums;
 }
-.chamber.sealed .plan-numeral { fill: var(--azure-dim); }
+.chamber.sealed .plan-numeral { fill: rgba(246,222,164,0.9); }
 .plan-bench {
   fill: none;
-  stroke: rgba(132,182,255,0.5);
-  stroke-width: 2.5;
+  stroke: rgba(226,190,112,0.9);
+  stroke-width: 3.5;
   stroke-linecap: round;
+  filter: drop-shadow(0 2px 5px rgba(3,6,14,0.7));
   transition: stroke 0.6s ease, filter 0.6s ease;
 }
-.chamber.sealed .plan-bench { stroke: var(--azure-bright); filter: drop-shadow(0 2px 10px rgba(76,141,255,0.45)); }
-.chamber.sealed .plan-floor { fill: rgba(76,141,255,0.085); }
+.chamber.sealed .plan-bench { filter: drop-shadow(0 2px 10px rgba(226,190,112,0.4)); }
 
-/* Two paired founders, drawn as a lit chord across the chamber floor */
+
+/* ─── The concordat ───
+   Two paired founders read as a bond struck into the same stone as the rest
+   of the floor: a double brass rule (the outer line and a finer inner rule,
+   the way a formal document is ruled), sealed at its midpoint by a rotated
+   lozenge holding the pair's own colour as a set gem. No neon, no dashed
+   heart-trail — the only per-pair colour is the small gem itself. */
+.plan-bond-group { pointer-events: none; }
 .plan-bond {
   fill: none;
-  stroke-width: 2;
+  stroke: rgba(226,190,112,0.5);
+  stroke-width: 1.6;
   stroke-linecap: round;
-  stroke-dasharray: 5 9;
-  opacity: 0.55;
+}
+.plan-bond.is-inner {
+  stroke: rgba(226,190,112,0.22);
+  stroke-width: 0.8;
+}
+.bond-seal-plate {
+  fill: #0d1730;
+  stroke: rgba(226,190,112,0.65);
+  stroke-width: 1;
+}
+.bond-seal-gem {
+  filter: drop-shadow(0 0 3px currentColor);
 }
 
 .chamber-mark {
@@ -1077,20 +1139,21 @@ body.intro-active .intro-scan {
   stroke-width: 2.5;
   opacity: 0;
 }
-.seal-crack-glow {
+.sigil-ring {
   fill: none;
-  stroke: rgba(132,182,255,0.55);
-  stroke-width: 7;
-  stroke-linecap: round;
-  stroke-linejoin: round;
+  stroke: #dcE9ff;
   opacity: 0;
 }
-.seal-crack {
-  fill: none;
-  stroke: #eaf2ff;
-  stroke-width: 1.6;
+.sigil-inner { stroke-width: 1.6; }
+.sigil-outer { stroke-width: 1; }
+.sigil-tick {
+  stroke: rgba(196,219,255,0.9);
+  stroke-width: 2.4;
   stroke-linecap: round;
-  stroke-linejoin: round;
+  opacity: 0;
+}
+.seal-shard {
+  fill: #e6efff;
   opacity: 0;
 }
 .chamber-mark-inner { display: block; }
@@ -1110,11 +1173,35 @@ body.intro-active .intro-scan {
 .seat-station {
   position: absolute;
   transform: translate(-50%, -50%);
+  transform-style: preserve-3d;
   z-index: 2;
   /* Glides when an admin swaps two seats. */
   transition: left 0.7s cubic-bezier(0.22,1,0.3,1), top 0.7s cubic-bezier(0.22,1,0.3,1);
 }
 .seat-station.is-head { z-index: 4; }
+/* Each founder casts a contact shadow onto the plane beneath them. */
+.seat-station::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: 2%;
+  width: 84px;
+  height: 26px;
+  transform: translateX(-50%);
+  border-radius: 50%;
+  background: radial-gradient(ellipse at center, rgba(2,4,12,0.72) 0%, rgba(2,4,12,0.3) 44%, transparent 72%);
+  filter: blur(5px);
+  pointer-events: none;
+}
+.seat-station.is-head::before { width: 120px; height: 34px; }
+
+/* The 3D joint: undoes the table tilt so each founder stands upright on the
+   tilted plane, pivoting at the nameplate so they rise from where they sit. */
+.seat-stand {
+  transform: rotateX(calc(var(--tilt) * -1));
+  transform-origin: 50% 92%;
+  transform-style: preserve-3d;
+}
 
 .seat {
   display: flex;
@@ -1134,6 +1221,37 @@ body.intro-active .intro-scan {
 }
 .seat:focus-visible { outline: 2px solid var(--azure-bright); outline-offset: 5px; border-radius: 10px; }
 .seat-portrait { position: relative; display: block; }
+/* Each founder is a body in orbit: a slow dashed ring circles the portrait. */
+.seat-portrait::before {
+  content: '';
+  position: absolute;
+  inset: -6px;
+  border-radius: 50%;
+  border: 1px solid rgba(226,190,112,0.34);
+  pointer-events: none;
+}
+.seat.is-head .seat-portrait::before {
+  inset: -9px;
+  border-color: rgba(246,215,137,0.7);
+  border-width: 1.5px;
+  box-shadow: 0 0 16px rgba(246,215,137,0.2);
+}
+.seat.is-vacant .seat-portrait::before { border-color: rgba(226,190,112,0.14); border-style: dashed; }
+/* Sphere shading over the portrait, lit from the cursor. */
+.seat-portrait::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 1;
+  background:
+    radial-gradient(circle at var(--lx, 34%) var(--ly, 30%), rgba(255,255,255,0.30) 0%, rgba(255,255,255,0.08) 20%, transparent 46%),
+    radial-gradient(circle at 74% 82%, rgba(3,6,14,0.55) 0%, transparent 58%);
+  box-shadow: inset 1px 1px 2px rgba(255,255,255,0.24), inset -5px -7px 14px rgba(3,6,14,0.55);
+}
+.seat.is-vacant .seat-portrait::after { opacity: 0.45; }
+.seat-crown, .seat-bond { z-index: 2; }
 .seat-avatar {
   display: flex;
   align-items: center;
@@ -1141,23 +1259,36 @@ body.intro-active .intro-scan {
   width: 54px; height: 54px;
   border-radius: 50%;
   object-fit: cover;
-  border: 1.5px solid rgba(132,182,255,0.45);
+  border: 1.5px solid rgba(226,190,112,0.5);
   background: linear-gradient(158deg, #16264d, #0a1229);
   color: var(--ice);
   font-family: 'Cormorant Garamond', serif;
   font-size: 1.25rem;
   font-weight: 600;
+  box-shadow: 0 6px 18px rgba(3,6,14,0.6), inset 0 0 0 1px rgba(255,246,218,0.08);
   transition: transform 0.45s cubic-bezier(0.16,1,0.3,1), box-shadow 0.45s ease, border-color 0.35s ease, background-color 0.35s ease;
 }
 .seat:hover .seat-avatar,
 .seat:focus-visible .seat-avatar {
   transform: translateY(-5px) scale(1.08);
-  border-color: var(--azure-bright);
-  box-shadow: 0 14px 30px rgba(3,6,14,0.65), 0 0 0 1px rgba(132,182,255,0.5);
+  border-color: rgba(255,240,196,0.95);
+  box-shadow: 0 14px 30px rgba(3,6,14,0.7), 0 0 18px rgba(226,190,112,0.3);
 }
-.seat-plate { display: flex; flex-direction: column; gap: 1px; max-width: 100%; }
+/* The nameplate: a brass desk plate, as on a delegation bench. */
+.seat-plate {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  max-width: 100%;
+  padding: 3px 9px 4px;
+  border-radius: 2px;
+  background: linear-gradient(176deg, rgba(38,32,16,0.72), rgba(16,14,8,0.72));
+  border-top: 1px solid rgba(240,214,150,0.34);
+  border-bottom: 1px solid rgba(0,0,0,0.5);
+  box-shadow: 0 3px 10px rgba(3,6,14,0.6);
+}
 .seat-name {
-  font-family: 'Cormorant Garamond', serif;
+  font-family: 'Cormorant Garamond', 'Noto Serif TC', serif;
   font-size: 0.95rem;
   font-weight: 600;
   color: var(--platinum);
@@ -1177,12 +1308,12 @@ body.intro-active .intro-scan {
 
 .seat-crown {
   position: absolute;
-  top: -10px; left: 50%;
+  top: -14px; left: 50%;
   transform: translateX(-50%);
   font-style: normal;
   font-size: 0.75rem;
-  color: var(--azure-bright);
-  text-shadow: 0 1px 8px rgba(132,182,255,0.9);
+  color: #f6d789;
+  text-shadow: 0 1px 10px rgba(246,215,137,0.9);
 }
 .seat-bond {
   position: absolute;
@@ -1200,15 +1331,16 @@ body.intro-active .intro-scan {
   box-shadow: 0 10px 26px rgba(3,6,14,0.55), 0 0 0 1px var(--bond, var(--azure-bright));
 }
 
-/* Head of Council — the open end of the horseshoe */
+/* Head of Council — the open end of the horseshoe, ringed in gold like the
+   sun at the chamber's centre. */
 .seat.is-head { width: 136px; }
 .seat.is-head .seat-avatar {
   width: 78px; height: 78px;
-  border-color: var(--azure-bright);
-  box-shadow: 0 10px 30px rgba(3,6,14,0.6), 0 0 0 1px rgba(132,182,255,0.55);
+  border-color: rgba(246,215,137,0.75);
+  box-shadow: 0 10px 30px rgba(3,6,14,0.6), 0 0 22px rgba(246,215,137,0.22), 0 0 0 1px rgba(246,215,137,0.4);
 }
 .seat.is-head .seat-name { font-size: 1.15rem; }
-.seat.is-head .seat-role { color: var(--azure-bright); }
+.seat.is-head .seat-role { color: #f0d68e; letter-spacing: 0.18em; }
 
 /* Unclaimed stations */
 .seat.is-vacant { cursor: default; }
@@ -1351,15 +1483,426 @@ body.intro-active .intro-scan {
 .admin-act.danger { background: rgba(255,90,95,0.08); border-color: rgba(255,90,95,0.4); color: #ff8a8e; }
 .admin-act.danger:hover { background: rgba(255,90,95,0.18); border-color: var(--signal); }
 
-/* The chamber wants every horizontal pixel it can get on a phone. */
+/* The chamber wants every horizontal pixel it can get on a phone, and the tall
+   plan takes a gentler tilt so the far seats don't compress into the bench. */
 @media (max-width: 720px) {
   .hall { padding-left: 0.75rem; padding-right: 0.75rem; }
+  .chamber { --tilt: 14deg; }
+  /* The system flattens a little on phones, and the riding nameplates come
+     off: at this scale they collide across orbits. Names live in the dossier
+     a tap away. */
 }
+
+/* ═══════════════════════════════════════════
+   THE SECRETARIAT
+   The club's government, set like a diplomatic registry: gold for the chair,
+   a jewel hue per directorate, and a quiet floor for members without office.
+═══════════════════════════════════════════ */
+.secretariat {
+  background: radial-gradient(ellipse 50% 42% at 50% 44%, rgba(46,64,130,0.20) 0%, transparent 72%);
+}
+.secretariat-sub {
+  text-align: center;
+  font-size: 0.85rem;
+  color: var(--silver);
+  letter-spacing: 0.06em;
+  margin: -1.5rem auto 0;
+}
+
+/* ─── The Round Table ───
+   One ring of equal seats around the club's emblem, built as a 3D carousel.
+   The world is a floor seen from a raised camera (rotateX(-elev)); the table
+   lies flat in it (rotateX(90)); each seat is placed on the ring by
+   rotateY(a) translateZ(R) and then billboarded back to face the camera.
+   --theta is tweened by ScrollTrigger while the stage is pinned. */
+.rt-stage {
+  --elev: 16deg;
+  --R: 300px;
+  --seat-w: 214px;
+  --table: 780px;
+  position: relative;
+  height: clamp(520px, 74vh, 720px);
+  perspective: 1500px;
+  perspective-origin: 50% 42%;
+}
+.rt-world {
+  position: absolute;
+  inset: 0;
+  transform-style: preserve-3d;
+  transform: translateY(8%) rotateX(calc(var(--elev) * -1)) rotateY(var(--lean-y, 0deg));
+  transition: transform 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.rt-table {
+  position: absolute;
+  left: 50%; top: 50%;
+  width: var(--table);
+  aspect-ratio: 1;
+  margin: calc(var(--table) * -0.5) 0 0 calc(var(--table) * -0.5);
+  border-radius: 50%;
+  transform: rotateX(90deg);
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 50% 50%, rgba(46,84,180,0.36) 0%, rgba(58,52,140,0.20) 40%, rgba(10,16,40,0.80) 70%, rgba(6,10,24,0.96) 100%);
+  box-shadow: inset 0 0 70px rgba(76,141,255,0.14);
+}
+/* The rim: a turning band of real metal. */
+.rt-table::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  --a0: 0deg;
+  background: conic-gradient(from 0deg,
+    #6e5217 0%, #d9b25c 12%, #fff3c4 20%, #f6d789 28%, #8a6a1f 42%,
+    #c99f3f 55%, #fff8dc 63%, #d9b25c 72%, #6e5217 86%, #b9902f 94%, #6e5217 100%);
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 5px), #000 calc(100% - 4.5px));
+  mask: radial-gradient(farthest-side, transparent calc(100% - 5px), #000 calc(100% - 4.5px));
+  animation: orrSpin 48s linear infinite;
+  pointer-events: none;
+}
+.rt-table-art { position: absolute; inset: 0; width: 100%; height: 100%; }
+.rt-table-text {
+  font-family: 'Epilogue', sans-serif;
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: 8px;
+  fill: rgba(246,215,137,0.58);
+}
+/* Light pooling on the table around the emblem */
+.rt-pool {
+  position: absolute;
+  left: 50%; top: 50%;
+  width: 340px;
+  aspect-ratio: 1;
+  margin: -170px 0 0 -170px;
+  border-radius: 50%;
+  transform: rotateX(90deg) translateZ(1px);
+  background: radial-gradient(circle, rgba(246,215,137,0.34) 0%, rgba(246,215,137,0.10) 45%, transparent 72%);
+  filter: blur(8px);
+  animation: sunBreathe 7s ease-in-out infinite;
+  pointer-events: none;
+}
+/* The emblem, standing at the centre */
+.rt-core {
+  position: absolute;
+  left: 50%; top: 50%;
+  width: 150px; height: 150px;
+  margin: -75px 0 0 -75px;
+  transform: rotateX(var(--elev)) translateY(-58%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+.rt-core-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  --a0: 0deg;
+  background: conic-gradient(from 0deg,
+    #6e5217 0%, #d9b25c 12%, #fff3c4 20%, #f6d789 28%, #8a6a1f 42%,
+    #c99f3f 55%, #fff8dc 63%, #d9b25c 72%, #6e5217 86%, #b9902f 94%, #6e5217 100%);
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 2.5px));
+  mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 2.5px));
+  animation: orrSpin 18s linear infinite;
+}
+.rt-core-emblem {
+  width: 104px; height: 104px;
+  opacity: 0.95;
+  filter: drop-shadow(0 0 22px rgba(246,215,137,0.5));
+}
+
+/* The ring of seats */
+.rt-ring {
+  position: absolute;
+  left: 50%; top: 50%;
+  width: 0; height: 0;
+  transform-style: preserve-3d;
+  transform: rotateY(var(--theta, 0deg));
+  will-change: transform;
+}
+.rt-shadow {
+  position: absolute;
+  left: 0; top: 0;
+  width: 190px; height: 100px;
+  margin: -50px 0 0 -95px;
+  border-radius: 50%;
+  transform: rotateY(var(--a)) translateZ(var(--R)) rotateX(90deg);
+  background: radial-gradient(ellipse, rgba(2,4,12,0.8) 0%, rgba(2,4,12,0.35) 45%, transparent 72%);
+  pointer-events: none;
+}
+.rt-seat {
+  --office: var(--azure-bright);
+  position: absolute;
+  left: 0; top: 0;
+  width: var(--seat-w);
+  margin-left: calc(var(--seat-w) * -0.5);
+  text-align: center;
+  backface-visibility: hidden;
+  transform: rotateY(var(--a)) translateZ(var(--R)) rotateY(calc(-1 * var(--a) - var(--theta, 0deg))) rotateX(var(--elev)) translateY(-94%);
+  opacity: 0.72;
+  transition: opacity 0.5s ease;
+}
+.rt-seat.is-front { opacity: 1; }
+.rt-seat-inner { transform: scale(0.94); transition: transform 0.6s cubic-bezier(0.16, 1, 0.3, 1); }
+.rt-seat.is-front .rt-seat-inner { transform: scale(1.06); }
+
+.rt-medals { display: flex; justify-content: center; margin-bottom: 12px; }
+.rt-medal {
+  position: relative;
+  width: 88px;
+  aspect-ratio: 1;
+  padding: 0;
+  border-radius: 50%;
+  border: 2px solid color-mix(in oklab, var(--office) 80%, transparent);
+  background: radial-gradient(circle at 40% 35%, #1a2d5c, #08102a 72%);
+  cursor: pointer;
+  box-shadow:
+    0 0 28px color-mix(in oklab, var(--office) 45%, transparent),
+    0 16px 34px rgba(3,6,14,0.6);
+  transition: transform 0.45s cubic-bezier(0.16,1,0.3,1), box-shadow 0.45s ease;
+}
+.rt-medal + .rt-medal { margin-left: -22px; }
+.rt-medal img {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%;
+  object-fit: cover;
+  border-radius: 50%;
+}
+.rt-medal:hover, .rt-medal:focus-visible {
+  transform: translateY(-6px) scale(1.08);
+  box-shadow:
+    0 0 44px color-mix(in oklab, var(--office) 70%, transparent),
+    0 22px 44px rgba(3,6,14,0.65);
+}
+.rt-medal:focus-visible { outline: 2px solid var(--azure-bright); outline-offset: 4px; }
+.rt-medal.is-vacant {
+  cursor: default;
+  border-color: color-mix(in oklab, var(--office) 45%, transparent);
+  background: radial-gradient(circle at 40% 35%, color-mix(in oklab, var(--office) 22%, #10193a), #070c1e 75%);
+  box-shadow:
+    0 0 22px color-mix(in oklab, var(--office) 28%, transparent),
+    0 16px 34px rgba(3,6,14,0.55);
+}
+.rt-glyph, .rt-initial {
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-style: normal;
+}
+.rt-glyph { font-size: 1.6rem; color: var(--office); text-shadow: 0 0 14px color-mix(in oklab, var(--office) 70%, transparent); }
+.rt-initial { font-family: 'Cormorant Garamond', serif; font-size: 1.9rem; font-weight: 600; color: var(--platinum); }
+
+.rt-office-zh {
+  font-family: 'Noto Serif TC', 'Cormorant Garamond', serif;
+  font-weight: 700;
+  font-size: 1.5rem;
+  line-height: 1.15;
+  color: var(--platinum);
+  text-shadow: 0 2px 12px rgba(3,6,14,0.9);
+}
+
+/* Which seat is front; each dot turns the table to its office. */
+.rt-dots {
+  position: absolute;
+  left: 50%; bottom: 10px;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 14px;
+}
+.rt-dot {
+  position: relative;
+  width: 10px; height: 10px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid color-mix(in oklab, var(--office) 65%, transparent);
+  background: transparent;
+  cursor: pointer;
+  transition: transform 0.3s cubic-bezier(0.16,1,0.3,1), background-color 0.3s ease, box-shadow 0.3s ease;
+}
+.rt-dot::before { content: ''; position: absolute; inset: -16px; } /* 40px hit target */
+.rt-dot.on { background: var(--office); box-shadow: 0 0 12px var(--office); transform: scale(1.35); }
+.rt-dot:focus-visible { outline: 2px solid var(--azure-bright); outline-offset: 4px; }
+
+/* Sphere shading laid over every body: a highlight that slides toward the
+   cursor (--lx/--ly, set on the world), a terminator shadow, a rim light. */
+.orb-shade {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at var(--lx, 34%) var(--ly, 30%), rgba(255,255,255,0.34) 0%, rgba(255,255,255,0.10) 20%, transparent 46%),
+    radial-gradient(circle at 74% 82%, rgba(3,6,14,0.62) 0%, rgba(3,6,14,0.2) 34%, transparent 60%);
+  box-shadow:
+    inset 1px 1px 2px rgba(255,255,255,0.28),
+    inset -6px -8px 18px rgba(3,6,14,0.6);
+}
+.assembly-orb { position: relative; display: block; border-radius: 50%; }
+.orr-empty-note { text-align: center; font-size: 0.8rem; font-style: italic; color: var(--silver-mute); }
+
+/* Admin: office toggles, and the badges in the dossier */
+.office-badges { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; margin-top: 10px; }
+.office-badges .office-badge { margin-top: 0; }
+.admin-role-row { flex-direction: column; gap: 8px; }
+.role-toggles { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; }
+.role-toggle {
+  --office: var(--azure-bright);
+  min-height: 36px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(76,141,255,0.3);
+  background: rgba(3,6,14,0.5);
+  color: var(--silver);
+  font-family: inherit;
+  font-size: 0.78rem;
+  cursor: pointer;
+  transition: border-color 0.25s ease, background-color 0.25s ease, color 0.25s ease, box-shadow 0.25s ease;
+}
+.role-toggle.on {
+  border-color: var(--office);
+  background: color-mix(in oklab, var(--office) 16%, transparent);
+  color: var(--platinum);
+  box-shadow: 0 0 12px color-mix(in oklab, var(--office) 30%, transparent);
+}
+.role-toggle:focus-visible { outline: 2px solid var(--azure-bright); outline-offset: 2px; }
+
+@media (max-width: 720px) {
+  .rt-stage { --R: 176px; --seat-w: 156px; --table: 470px; --elev: 14deg; height: clamp(440px, 64vh, 560px); }
+  .rt-medal { width: 70px; }
+  .rt-office-zh { font-size: 1.2rem; }
+  .rt-core { width: 110px; height: 110px; margin: -55px 0 0 -55px; }
+  .rt-core-emblem { width: 76px; height: 76px; }
+  .rt-table-text { font-size: 30px; }
+}
+
+/* Legibility: the front seat's text sits on a dark plate; the camera rises so
+   the front and back rows separate on screen instead of stacking through the
+   emblem; the back row quiets to medallion and title. */
+.rt-stage { --elev: 24deg; }
+.rt-world { transform: translateY(3%) rotateX(calc(var(--elev) * -1)) rotateY(var(--lean-y, 0deg)); }
+.rt-seat {
+  transform: rotateY(var(--a)) translateZ(var(--R)) rotateY(calc(-1 * var(--a) - var(--theta, 0deg))) rotateX(var(--elev)) translateY(-76%);
+}
+.rt-seat:not(.is-front) { opacity: 0.42; }
+@media (max-width: 720px) {
+  .rt-stage { --elev: 20deg; }
+}
+
+/* The floor band */
+.assembly-band {
+  max-width: 1080px;
+  margin: 3.5rem auto 0;
+  padding-top: 2.25rem;
+  border-top: 1px solid rgba(132,182,255,0.12);
+}
+.band-title {
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.26em;
+  text-transform: uppercase;
+  color: var(--silver-dim);
+  text-align: center;
+  margin-bottom: 1.5rem;
+}
+.assembly-grid {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 18px 22px;
+}
+.assembly-chip {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 7px;
+  width: 76px;
+  padding: 4px;
+  background: none;
+  border: none;
+  font-family: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+.assembly-avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 1.5px solid rgba(132,182,255,0.35);
+  background: linear-gradient(158deg, #16264d, #0a1229);
+  color: var(--ice);
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 1.1rem;
+  font-weight: 600;
+  transition: transform 0.35s cubic-bezier(0.16,1,0.3,1), border-color 0.3s ease, box-shadow 0.3s ease;
+}
+.assembly-chip:hover .assembly-avatar,
+.assembly-chip:focus-visible .assembly-avatar {
+  transform: translateY(-4px) scale(1.06);
+  border-color: var(--azure-bright);
+  box-shadow: 0 10px 22px rgba(3,6,14,0.55), 0 0 14px rgba(76,141,255,0.3);
+}
+.assembly-chip:focus-visible { outline: 2px solid var(--azure-bright); outline-offset: 2px; border-radius: 8px; }
+.assembly-name {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.72rem;
+  color: var(--silver);
+}
+.assembly-mark { font-style: normal; font-size: 0.5rem; color: rgba(246,215,137,0.75); margin-right: 4px; vertical-align: 1px; }
+
+/* Office badge in the dossier, and the admin appointment row */
+.office-badge {
+  --office: var(--azure-bright);
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 10px;
+  padding: 5px 14px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in oklab, var(--office) 50%, transparent);
+  background: color-mix(in oklab, var(--office) 10%, transparent);
+  color: var(--office);
+  font-size: 0.74rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+}
+.admin-role-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  justify-content: center;
+  margin-bottom: 0.85rem;
+}
+.admin-role-label {
+  font-size: 0.62rem;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--silver-dim);
+}
+.role-select {
+  min-height: 40px;
+  padding: 6px 12px;
+  border-radius: 3px;
+  border: 1px solid rgba(76,141,255,0.3);
+  background: rgba(3,6,14,0.55);
+  color: var(--platinum);
+  font-family: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+.role-select:focus-visible { outline: 2px solid var(--azure-bright); outline-offset: 2px; }
 
 /* ═══════════════════════════════════════════
    ABOUT SECTION
 ═══════════════════════════════════════════ */
-.about-section { background: linear-gradient(180deg, transparent 0%, #070d20 50%, transparent 100%); }
+.about-section { background: radial-gradient(ellipse 54% 44% at 50% 50%, rgba(12,20,48,0.55) 0%, transparent 74%); }
 .about-intro {
   font-family: 'Cormorant Garamond', serif;
   font-size: clamp(1.4rem, 3vw, 1.9rem);
@@ -1776,11 +2319,6 @@ body.intro-active .intro-scan {
    from a resting CSS state. The room has to be a room whether or not the
    animation ever runs: an earlier pass gated the bench and its station marks on
    a .drawn class and they simply never appeared if ScrollTrigger mis-measured. */
-@media (prefers-reduced-motion: no-preference) {
-  .plan-bond { animation: bondDrift 3.2s linear infinite; }
-}
-@keyframes bondDrift { to { stroke-dashoffset: -28; } }
-
 /* Phones get the taller room: smaller stations, and the ring carries portraits
    only. The nameplate would collide with its neighbours around the bend, and
    the dossier is one tap away. */
@@ -2012,4 +2550,182 @@ body.intro-active .intro-scan {
     scroll-behavior: auto !important;
   }
   .hero-title-word-inner { transform: none; }
+}
+
+/* ─── The docket ───
+   A plaque set down on the table when an office comes to front: a docket
+   number stamped in brass at the spine, letterhead rule, ruled roster —
+   not a centered icon-over-heading card. Flat 2D and inside the pinned
+   stage, so the table's rim can never cut it and it can't scroll away
+   while the ring turns. */
+.rt-stage { height: clamp(600px, 84vh, 780px); perspective: 1400px; }
+.rt-docket {
+  --office: var(--azure-bright);
+  position: absolute;
+  left: 50%;
+  bottom: 56px;
+  transform-origin: 50% 0%;
+  transform: translateX(-50%);
+  display: flex;
+  /* Sized off the viewport, not the containing block: .rt-stage becomes
+     position:fixed while pinned, and a fixed box with no left/right set
+     shrink-wraps its content instead of filling the screen — a % width here
+     would resolve against that shrunk box rather than the visible viewport. */
+  width: min(94vw, 560px);
+  border-radius: 3px;
+  background: linear-gradient(176deg, rgba(17,26,52,0.94), rgba(8,12,26,0.96));
+  border: 1px solid rgba(226,190,112,0.22);
+  border-top: 2px solid color-mix(in oklab, var(--office) 55%, #e6c675 45%);
+  box-shadow: 0 24px 56px rgba(3,6,14,0.6), inset 0 1px 0 rgba(255,255,255,0.04);
+  /* Tabling: the plaque is set down onto the table, hinged at its top edge —
+     the way a docket is laid before a council, not a card that fades up. */
+  animation: rtTabling 0.62s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+@keyframes rtTabling {
+  from { opacity: 0; transform: translateX(-50%) rotateX(-58deg) translateY(-8px); }
+  60%  { opacity: 1; }
+  to   { opacity: 1; transform: translateX(-50%) rotateX(0deg) translateY(0); }
+}
+/* Lift-off: the outgoing plaque clears the table before the next one is set
+   down, so turning between offices reads as a continuous exchange rather than
+   a hard pop. Faster than the entrance — an exit should never make you wait. */
+.rt-docket.is-leaving {
+  animation: rtTablingOut 0.2s cubic-bezier(0.4, 0, 1, 1) both;
+  pointer-events: none;
+}
+@keyframes rtTablingOut {
+  from { opacity: 1; transform: translateX(-50%) rotateX(0deg) translateY(0); }
+  to   { opacity: 0; transform: translateX(-50%) rotateX(-38deg) translateY(-6px); }
+}
+@media (prefers-reduced-motion: reduce) { .rt-docket, .rt-docket.is-leaving { animation: none; } }
+
+.rt-docket-spine {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 56px;
+  padding: 16px 0;
+  border-right: 1px solid rgba(226,190,112,0.18);
+  background: linear-gradient(180deg, color-mix(in oklab, var(--office) 10%, transparent), transparent 60%);
+}
+.rt-docket-seal {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: 1px solid color-mix(in oklab, var(--office) 60%, transparent);
+  color: var(--office);
+  font-style: normal;
+  font-size: 0.85rem;
+  box-shadow: 0 0 10px color-mix(in oklab, var(--office) 25%, transparent);
+}
+.rt-docket-no {
+  font-family: 'Epilogue', sans-serif;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: rgba(226,190,112,0.5);
+  font-variant-numeric: tabular-nums;
+}
+.rt-docket-body { flex: 1 1 auto; min-width: 0; padding: 16px 22px 18px 18px; text-align: left; }
+.rt-docket-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding-bottom: 10px;
+  border-bottom: 1px solid rgba(226,190,112,0.16);
+}
+.rt-docket-zh {
+  margin: 0;
+  font-family: 'Noto Serif TC', 'Cormorant Garamond', serif;
+  font-weight: 700;
+  font-size: 1.4rem;
+  color: var(--platinum);
+  line-height: 1.15;
+}
+.rt-docket-en {
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--office);
+}
+.rt-docket-duty {
+  margin: 10px 0 0;
+  max-width: 44ch;
+  font-size: 0.84rem;
+  line-height: 1.55;
+  color: #dbe3f2;
+}
+.rt-docket-roster { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 12px; margin-top: 11px; }
+.rt-docket-roster-label {
+  font-size: 0.62rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--silver-mute);
+}
+.rt-docket-list { display: flex; flex-wrap: wrap; gap: 2px 16px; margin: 0; padding: 0; list-style: none; }
+.rt-docket-list li { position: relative; padding-left: 12px; }
+.rt-docket-list li::before {
+  content: '—';
+  position: absolute;
+  left: 0;
+  color: color-mix(in oklab, var(--office) 60%, transparent);
+  font-size: 0.75rem;
+}
+.rt-docket-person {
+  padding: 2px 0;
+  background: none;
+  border: none;
+  border-bottom: 1px solid transparent;
+  font-family: 'Cormorant Garamond', 'Noto Serif TC', serif;
+  font-size: 1.08rem;
+  font-weight: 600;
+  color: var(--platinum);
+  cursor: pointer;
+  transition: color 0.25s ease, border-color 0.25s ease;
+}
+.rt-docket-person:hover, .rt-docket-person:focus-visible {
+  color: var(--office);
+  border-bottom-color: color-mix(in oklab, var(--office) 60%, transparent);
+}
+.rt-docket-person:focus-visible { outline: none; }
+.rt-docket-open {
+  font-family: 'Epilogue', sans-serif;
+  font-size: 0.78rem;
+  letter-spacing: 0.02em;
+  color: var(--silver-mute);
+  padding-bottom: 3px;
+  border-bottom: 1px dashed rgba(159,178,216,0.3);
+}
+
+/* The ring now carries only medallion + office name, so it can sit higher and
+   leave the lower third of the stage to the docket below it. No entrance
+   ceremony: the table is always fully set, and the only motion here is the
+   scroll-bound turn — which is already correct in both directions since it's
+   driven directly by scrub position, never a one-shot trigger. */
+.rt-seat {
+  transform: rotateY(var(--a)) translateZ(var(--R)) rotateY(calc(-1 * var(--a) - var(--theta, 0deg))) rotateX(var(--elev)) translateY(-104%);
+}
+.rt-world {
+  transform: translateY(-6%) rotateX(calc(var(--elev) * -1)) rotateY(var(--lean-y, 0deg));
+}
+.rt-office-zh { margin-top: 2px; }
+.rt-seat:not(.is-front) .rt-office-zh { opacity: 0.7; }
+
+@media (max-width: 720px) {
+  .rt-stage { height: clamp(560px, 78vh, 660px); }
+  .rt-docket { bottom: 46px; }
+  .rt-docket-spine { width: 44px; padding: 12px 0; }
+  .rt-docket-body { padding: 13px 16px 14px 14px; }
+  .rt-docket-zh { font-size: 1.2rem; }
+  .rt-docket-duty { font-size: 0.79rem; }
+  .rt-docket-person { font-size: 0.98rem; }
 }
