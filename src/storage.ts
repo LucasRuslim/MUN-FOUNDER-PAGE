@@ -14,7 +14,13 @@ export interface Member {
   avatar?: string;
   avatarName?: string;
   bio?: string;
+  /* Chairs the council. Kept as isMainFounder so existing records still
+     resolve; it means "head of council" now, not "founding member". */
   isMainFounder?: boolean;
+  /* Offices this person holds, by role id. `role` is the older single-value
+     field and is still read so nobody loses their office on migration. */
+  roles?: string[];
+  role?: string;
   /* Council editor (admin): explicit perimeter seat + bestie pairing */
   seat?: number;
   bestieWith?: string;
@@ -36,8 +42,6 @@ const db = getFirestore(app);
 // Firestore security rules can verify them via request.auth.
 export const auth = getAuth(app);
 
-const MAX_MEMBERS = 15;
-
 // Local cache for synchronous reads
 let currentMembers: Member[] = [];
 
@@ -55,10 +59,10 @@ export function getMembers(): Member[] {
   return currentMembers;
 }
 
+/* The council is open: no cap, no sealing, no waiting list. The only thing
+   that can refuse a seat is an email that already holds one. */
 export async function addMember(data: Omit<Member, 'memberNumber' | 'joinedAt' | 'id'>): Promise<Member | null> {
-  if (currentMembers.length >= MAX_MEMBERS) return null;
   if (currentMembers.some(m => m.email === data.email)) return null;
-  if (currentDelegates.some(d => d.email === data.email)) return null; // one email can't be both
 
   const newId = crypto.randomUUID();
   const member: Member = {
@@ -93,21 +97,17 @@ export function getMemberCount(): number {
 
 export async function removeMember(id: string): Promise<boolean> {
   await deleteDoc(doc(db, 'members', id));
-  
-  // Renumber remaining members to keep sequential memberNumbers
-  const snapshot = await getDocs(query(collection(db, 'members'), orderBy('joinedAt', 'asc')));
-  let i = 1;
-  for (const document of snapshot.docs) {
-    if (document.data().memberNumber !== i) {
-      await updateDoc(doc(db, 'members', document.id), { memberNumber: i });
-    }
-    i++;
-  }
+  await renumberCouncil();
   return true;
 }
 
 export async function toggleMainFounder(id: string, isMainFounder: boolean): Promise<void> {
   await updateDoc(doc(db, 'members', id), { isMainFounder });
+}
+
+/* Set the offices a member holds. Writing an empty list clears them. */
+export async function setMemberRoles(id: string, roles: string[]): Promise<void> {
+  await updateDoc(doc(db, 'members', id), { roles, role: deleteField() });
 }
 
 /* ─── Council editor (admin) ─── */
@@ -130,94 +130,59 @@ export async function clearBesties(idA: string, idB: string): Promise<void> {
   ]);
 }
 
-/* ─────────────── Founding Delegates (unlimited tier) ─────────────── */
-export interface Delegate {
-  id: string;
-  fullName: string;
-  firstName: string;
-  grade: string;
-  classGroup: string;
-  email: string;
-  delegateNumber: number;
-  joinedAt: string;
-  avatar?: string;
-  avatarName?: string;
-  bio?: string;
+/* ─────────────── Delegate migration ───────────────
+   The Founding Delegates tier is gone: there is one council now, and it is
+   open. Anyone who signed up as a delegate is folded into it rather than
+   dropped, keeping their join order so the council reads in the order people
+   actually arrived. Runs once per load, is idempotent, and is a no-op for a
+   project that never had delegates. */
+export async function migrateDelegatesIntoCouncil(): Promise<number> {
+  let snap;
+  try {
+    snap = await getDocs(query(collection(db, 'delegates'), orderBy('joinedAt', 'asc')));
+  } catch {
+    return 0;                       // collection absent or unreadable: nothing to do
+  }
+  if (snap.empty) return 0;
+
+  const taken = new Set(currentMembers.map(m => m.email.toLowerCase()));
+  let moved = 0;
+  for (const d of snap.docs) {
+    const data = d.data() as Record<string, unknown>;
+    const email = String(data.email ?? '');
+    if (email && !taken.has(email.toLowerCase())) {
+      const id = crypto.randomUUID();
+      await setDoc(doc(db, 'members', id), {
+        id,
+        fullName: data.fullName ?? '',
+        firstName: data.firstName ?? '',
+        grade: data.grade ?? '',
+        classGroup: data.classGroup ?? '',
+        email,
+        avatar: data.avatar ?? null,
+        avatarName: data.avatarName ?? null,
+        bio: data.bio ?? null,
+        /* Sorted into the council by when they originally joined, not by when
+           this migration happened to run. */
+        joinedAt: data.joinedAt ?? new Date().toISOString(),
+        memberNumber: 0,            // renumbered below, in join order
+      });
+      taken.add(email.toLowerCase());
+      moved++;
+    }
+    await deleteDoc(doc(db, 'delegates', d.id));
+  }
+
+  if (moved) await renumberCouncil();
+  return moved;
 }
 
-let currentDelegates: Delegate[] = [];
-
-export function subscribeToDelegates(callback: (delegates: Delegate[]) => void) {
-  const q = query(collection(db, 'delegates'), orderBy('joinedAt', 'asc'));
-  return onSnapshot(q, (snapshot) => {
-    currentDelegates = snapshot.docs.map(d => d.data() as Delegate);
-    callback(currentDelegates);
-  });
-}
-
-export function getDelegates(): Delegate[] {
-  return currentDelegates;
-}
-
-export function isDelegateByEmail(email: string): Delegate | undefined {
-  return currentDelegates.find(d => d.email === email);
-}
-
-export async function addDelegate(data: Omit<Delegate, 'delegateNumber' | 'joinedAt' | 'id'>): Promise<Delegate | null> {
-  if (currentDelegates.some(d => d.email === data.email)) return null;
-  if (currentMembers.some(m => m.email === data.email)) return null; // one email can't be both
-  const newId = crypto.randomUUID();
-  const delegate: Delegate = {
-    ...data,
-    id: newId,
-    delegateNumber: currentDelegates.length + 1,
-    joinedAt: new Date().toISOString(),
-  };
-  await setDoc(doc(db, 'delegates', newId), delegate);
-  return delegate;
-}
-
-export async function updateDelegate(email: string, updates: Partial<Pick<Delegate, 'fullName' | 'firstName' | 'grade' | 'classGroup' | 'avatar' | 'avatarName' | 'bio'>>) {
-  const delegate = currentDelegates.find(d => d.email === email);
-  if (!delegate) return null;
-  const finalUpdates: any = { ...updates };
-  if (updates.fullName) finalUpdates.firstName = updates.fullName.split(' ')[0];
-  await updateDoc(doc(db, 'delegates', delegate.id), finalUpdates);
-  return { ...delegate, ...finalUpdates };
-}
-
-export async function removeDelegate(id: string): Promise<boolean> {
-  await deleteDoc(doc(db, 'delegates', id));
-  return true;
-}
-
-/* Move the longest-waiting delegate into an open founder seat (admin only via
-   rules). Re-reads from the server so the count/queue isn't stale right after a
-   founder removal. Returns the new Member, or null if no seat is open / no
-   delegate is waiting. */
-export async function promoteEarliestDelegate(): Promise<Member | null> {
-  const memberSnap = await getDocs(collection(db, 'members'));
-  if (memberSnap.size >= MAX_MEMBERS) return null;            // no open seat
-  const delSnap = await getDocs(query(collection(db, 'delegates'), orderBy('joinedAt', 'asc')));
-  if (delSnap.empty) return null;                             // no delegate waiting
-
-  const dDoc = delSnap.docs[0];
-  const d = dDoc.data() as Delegate;
-  const newId = crypto.randomUUID();
-  const member: Member = {
-    id: newId,
-    fullName: d.fullName,
-    firstName: d.firstName,
-    grade: d.grade,
-    classGroup: d.classGroup,
-    email: d.email,
-    memberNumber: memberSnap.size + 1,
-    joinedAt: new Date().toISOString(),
-    ...(d.avatar ? { avatar: d.avatar } : {}),
-    ...(d.avatarName ? { avatarName: d.avatarName } : {}),
-    ...(d.bio ? { bio: d.bio } : {}),
-  };
-  await setDoc(doc(db, 'members', newId), member);
-  await deleteDoc(doc(db, 'delegates', dDoc.id));
-  return member;
+/* Council numbers follow arrival order and stay contiguous. */
+async function renumberCouncil(): Promise<void> {
+  const snap = await getDocs(query(collection(db, 'members'), orderBy('joinedAt', 'asc')));
+  let i = 1;
+  for (const d of snap.docs) {
+    if (d.data().memberNumber !== i) await updateDoc(doc(db, 'members', d.id), { memberNumber: i });
+    i++;
+  }
 }

@@ -5,25 +5,43 @@ import confetti from 'canvas-confetti';
 import Lenis from '@studio-freight/lenis';
 import { gsap } from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
-import { getMembers, subscribeToMembers, addMember, isMemberByEmail, removeMember, updateMember, toggleMainFounder, getDelegates, subscribeToDelegates, addDelegate, isDelegateByEmail, updateDelegate, removeDelegate, promoteEarliestDelegate, reorderMembers, setBesties, clearBesties, type Member, type Delegate } from './storage';
-import { useInView } from './useInView';
+import { getMembers, subscribeToMembers, addMember, isMemberByEmail, removeMember, updateMember, toggleMainFounder, setMemberRoles, migrateDelegatesIntoCouncil, reorderMembers, setBesties, clearBesties, type Member } from './storage';
 import { signInWithGoogle, getCachedGoogleUser, renderGoogleButton, type GoogleUser } from './googleAuth';
+import { LangProvider, useLang, useT } from './i18n';
 
 gsap.registerPlugin(ScrollTrigger);
 
-const MAX = 15;
-const SCHOOL = 'Youhua';
 const ADMIN_EMAIL = 'lucas1121.lin@gmail.com';
 const isAdminEmail = (email?: string | null) => !!email && email.toLowerCase() === ADMIN_EMAIL.toLowerCase();
 
-/* Chapters used by the scroll rail + side menu */
+/* Chapters used by the scroll rail + side menu. Labels are keys now, so the
+   rail translates with everything else. */
 const CHAPTERS = [
-  { id: 'hero',  label: 'The Chamber' },
-  { id: 'value', label: 'The Privilege' },
-  { id: 'hall',  label: 'The Founders' },
-  { id: 'delegation', label: 'The Delegation' },
-  { id: 'about', label: 'The Mission' },
+  { id: 'hero',        key: 'ch.hero' },
+  { id: 'about',       key: 'ch.about' },
+  { id: 'council',     key: 'ch.council' },
+  { id: 'secretariat', key: 'ch.offices' },
+] as const;
+
+/* ─── The club's offices ───
+   Ported from the Round Table branch. The ids and the Chinese names are that
+   work; the English names and duties live in the dictionary so both languages
+   stay in one place. A person may hold several offices. */
+type RoleDef = { id: string; zh: string; hue: string; glyph: string };
+const ROLES: RoleDef[] = [
+  { id: 'president', zh: '正副社長', hue: 'oklch(84% 0.130 88)',  glyph: '✦' },
+  { id: 'events',    zh: '活動',     hue: 'oklch(78% 0.120 355)', glyph: '❖' },
+  { id: 'treasury',  zh: '總務',     hue: 'oklch(82% 0.110 168)', glyph: '◈' },
+  { id: 'academics', zh: '教學',     hue: 'oklch(77% 0.118 258)', glyph: '❋' },
+  { id: 'pr',        zh: '公關',     hue: 'oklch(76% 0.120 300)', glyph: '◎' },
+  { id: 'web',       zh: '網管',     hue: 'oklch(82% 0.100 220)', glyph: '◉' },
 ];
+const roleById = (id?: string) => (id ? ROLES.find(r => r.id === id) : undefined);
+/* Offices a person holds; still reads the older single `role` field. */
+function rolesOf(p: { role?: string; roles?: string[] }): string[] {
+  if (p.roles && p.roles.length) return p.roles.filter(id => roleById(id));
+  return p.role && roleById(p.role) ? [p.role] : [];
+}
 
 /* Module-level smooth-scroll instance so the rail/menu can drive it */
 let lenisInstance: any = null;
@@ -90,43 +108,17 @@ function WordRevealTitle({ text, loaded }: { text: string; loaded: boolean }) {
   );
 }
 
-/* ─── Progress collar ───
-   Not a widget parked on top of the emblem, but the ring the emblem sits
-   inside: the charter closing around the world. It carries no centre text,
-   because the centre is the globe. The tally is set beneath it as type. */
-function ProgressRing({ count }: { count: number }) {
+/* ─── The collar ───
+   The ring the emblem sits inside. There is no cap to fill any more, so it is
+   not a gauge: it is a slowly turning open arc, the way the table is open. */
+function CouncilCollar() {
   const r = 96;
   const circ = 2 * Math.PI * r;
-  const offset = circ - (count / MAX) * circ;
-  const urgent = count >= 13 && count < MAX;
-  const full = count >= MAX;
-
   return (
     <svg className="collar" viewBox="0 0 210 210" aria-hidden="true">
       <circle cx="105" cy="105" r={r} className="ring-bg" />
-      <circle
-        cx="105" cy="105" r={r}
-        className={`ring-fill ${urgent ? 'urgent' : ''} ${full ? 'full' : ''}`}
-        strokeDasharray={circ}
-        strokeDashoffset={offset}
-      />
-    </svg>
-  );
-}
-
-/* ─── Delegate collar (open / unlimited, never "full") ───
-   A broken arc one step outside the founders' collar: the council closes,
-   the delegation does not. */
-function DelegateRing({ count }: { count: number }) {
-  const r = 104;
-  const circ = 2 * Math.PI * r;
-  return (
-    <svg className="collar collar-open" viewBox="0 0 220 220" aria-hidden="true" data-count={count}>
-      <circle
-        cx="110" cy="110" r={r}
-        className="ring-open"
-        strokeDasharray={`${(circ * 0.055).toFixed(2)} ${(circ * 0.035).toFixed(2)}`}
-      />
+      <circle cx="105" cy="105" r={r} className="ring-open"
+        strokeDasharray={`${(circ * 0.055).toFixed(2)} ${(circ * 0.035).toFixed(2)}`} />
     </svg>
   );
 }
@@ -195,6 +187,7 @@ function ScrollProgressRail() {
     return () => obs.disconnect();
   }, []);
 
+  const t = useT();
   return (
     <div className="scroll-rail">
       {CHAPTERS.map((c, i) => (
@@ -202,20 +195,39 @@ function ScrollProgressRail() {
           key={c.id}
           className={`rail-node ${i === active ? 'active' : ''} ${i < active ? 'done' : ''}`}
           onClick={() => scrollToId(c.id)}
-          aria-label={`Go to ${c.label}`}
+          aria-label={t(c.key)}
         >
           <span className="rail-line" />
           <span className="rail-diamond" />
-          <span className="rail-label">{c.label}</span>
+          <span className="rail-label">{t(c.key)}</span>
         </button>
       ))}
     </div>
   );
 }
 
+/* ─── Language toggle ───
+   One control, always showing the language it will switch you TO, which is
+   the convention that needs no explaining. */
+function LangToggle() {
+  const { lang, setLang } = useLang();
+  const t = useT();
+  return (
+    <button
+      className="lang-toggle"
+      onClick={() => setLang(lang === 'en' ? 'zh' : 'en')}
+      aria-label={t('nav.langLabel')}
+      lang={lang === 'en' ? 'zh-Hant' : 'en'}
+    >
+      {t('nav.lang')}
+    </button>
+  );
+}
+
 /* ─── Navbar ─── */
-function Navbar({ onMenu, seatsLeft, full }: { onMenu: () => void; seatsLeft: number; full: boolean }) {
+function Navbar({ onMenu, count }: { onMenu: () => void; count: number }) {
   const [scrolled, setScrolled] = useState(false);
+  const t = useT();
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 40);
     window.addEventListener('scroll', onScroll, { passive: true });
@@ -223,14 +235,14 @@ function Navbar({ onMenu, seatsLeft, full }: { onMenu: () => void; seatsLeft: nu
   }, []);
   return (
     <nav className={`navbar ${scrolled ? 'scrolled' : ''}`}>
-      <button className="nav-menu-btn" onClick={onMenu} aria-label="Open menu">
+      <button className="nav-menu-btn" onClick={onMenu} aria-label={t('nav.menu')}>
         <span className="nav-menu-lines"><span /><span /></span>
-        <span className="nav-menu-text">Menu</span>
+        <span className="nav-menu-text">{t('nav.menu')}</span>
       </button>
       <div className="nav-crest">Youhua MUN</div>
       <div className="nav-status">
-        <span className="live-dot" />
-        <span className="nav-status-text">{full ? 'Charter Sealed' : `${seatsLeft} Seat${seatsLeft !== 1 ? 's' : ''} Remain`}</span>
+        <LangToggle />
+        <span className="nav-status-text">{t('nav.members', { n: count })}</span>
       </div>
     </nav>
   );
@@ -238,13 +250,8 @@ function Navbar({ onMenu, seatsLeft, full }: { onMenu: () => void; seatsLeft: nu
 
 /* ─── Slide-out Menu ─── */
 function SideMenu({ onClose }: { onClose: () => void }) {
-  const links = [
-    { label: 'The Chamber', id: 'hero' },
-    { label: 'The Privilege', id: 'value' },
-    { label: 'The Founders', id: 'hall' },
-    { label: 'The Delegation', id: 'delegation' },
-    { label: 'The Mission', id: 'about' },
-  ];
+  const t = useT();
+  const links = CHAPTERS;
   const go = (id: string) => { onClose(); setTimeout(() => scrollToId(id), 220); };
   return (
     <>
@@ -253,7 +260,7 @@ function SideMenu({ onClose }: { onClose: () => void }) {
         <button className="menu-close" onClick={onClose} aria-label="Close menu">×</button>
         {links.map((l) => (
           <button key={l.id} className="menu-link" onClick={() => go(l.id)}>
-            <span className="menu-mark" aria-hidden="true">◆</span>{l.label}
+            <span className="menu-mark" aria-hidden="true">◆</span>{t(l.key)}
           </button>
         ))}
         <div className="menu-footer">Youhua School · Model United Nations · Est. 2026</div>
@@ -264,6 +271,7 @@ function SideMenu({ onClose }: { onClose: () => void }) {
 
 /* ─── Audio Toggle (procedural ambient drone) ─── */
 function AudioToggle() {
+  const t = useT();
   const [playing, setPlaying] = useState(false);
   const ctxRef = useRef<AudioContext | null>(null);
   const masterRef = useRef<GainNode | null>(null);
@@ -313,7 +321,7 @@ function AudioToggle() {
   return (
     <button className={`audio-toggle ${playing ? 'playing' : ''}`} onClick={toggle} aria-label="Toggle ambient sound">
       <span className="audio-bars"><span /><span /><span /><span /></span>
-      <span className="audio-label">{playing ? 'Sound On' : 'Ambience'}</span>
+      <span className="audio-label">{playing ? t('nav.soundOn') : t('nav.sound')}</span>
     </button>
   );
 }
@@ -322,10 +330,11 @@ function AudioToggle() {
 function AuthModal({ mode, onUser, onClose }: { mode: 'login' | 'claim' | 'admin'; onUser: (u: GoogleUser) => void; onClose: () => void }) {
   const btnRef = useRef<HTMLDivElement>(null);
   const [err, setErr] = useState<string | null>(null);
+  const t = useT();
   const copy = {
-    login: { title: 'Member Sign-In', sub: 'Sign in with Google to access your founding profile.' },
-    claim: { title: 'Verify Your Identity', sub: 'Sign in with Google to secure your seat and prevent duplicates.' },
-    admin: { title: 'Administrator Access', sub: 'Sign in with the administrator Google account.' },
+    login: { title: t('login.title'), sub: t('login.sub') },
+    claim: { title: t('join.title'), sub: t('join.sub') },
+    admin: { title: t('admin.title'), sub: t('admin.sub') },
   }[mode];
 
   useEffect(() => {
@@ -364,14 +373,14 @@ function GoogleIcon() {
   );
 }
 
-/* ─── Registration Modal ─── */
-function RegistrationModal({ onClose, onSuccess, count, preAuth }: {
+/* ─── Join the council ─── */
+function RegistrationModal({ onClose, onSuccess, preAuth }: {
   onClose: () => void;
   onSuccess: (m: Member) => void;
-  count: number;
   preAuth: GoogleUser | null;
 }) {
-  const [step, setStep] = useState<'auth' | 'form' | 'welcome' | 'blocked'>('auth');
+  const t = useT();
+  const [step, setStep] = useState<'auth' | 'form' | 'welcome'>('auth');
   const [authUser, setAuthUser] = useState<{ name: string; email: string } | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -383,29 +392,19 @@ function RegistrationModal({ onClose, onSuccess, count, preAuth }: {
   const applyUser = useCallback((user: { name: string; email: string }) => {
     setAuthUser({ name: user.name, email: user.email });
     setFullName((prev) => prev || user.name);
-    // One account can't be both: block if this email is already a Founding Delegate.
-    if (isDelegateByEmail(user.email)) { setStep('blocked'); return; }
     const existing = isMemberByEmail(user.email);
     if (existing) { setExistingMember(existing); setStep('welcome'); }
     else { setStep('form'); }
   }, []);
 
-  // Already signed in elsewhere on the site → skip the auth step entirely.
-  useEffect(() => {
-    if (preAuth) applyUser(preAuth);
-  }, [preAuth, applyUser]);
+  useEffect(() => { if (preAuth) applyUser(preAuth); }, [preAuth, applyUser]);
 
   const handleGoogleAuth = async () => {
     setLoading(true);
     setError(null);
-    try {
-      const user = await signInWithGoogle();
-      applyUser(user);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Authentication failed. Please try again.');
-    } finally {
-      setLoading(false);
-    }
+    try { applyUser(await signInWithGoogle()); }
+    catch (err) { setError(err instanceof Error ? err.message : 'Sign-in failed. Please try again.'); }
+    finally { setLoading(false); }
   };
 
   const handleSubmit = async () => {
@@ -422,76 +421,58 @@ function RegistrationModal({ onClose, onSuccess, count, preAuth }: {
     if (member) onSuccess(member);
   };
 
-  if (count >= MAX) {
-    return (
-      <div className="modal-overlay" onClick={onClose}>
-        <div className="modal" onClick={e => e.stopPropagation()}>
-          <button className="modal-close" onClick={onClose}>×</button>
-          <div className="modal-title">The Chamber Is Sealed</div>
-          <p className="modal-subtitle">All 15 Founding Member seats have been claimed. The charter is complete.</p>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal" onClick={e => e.stopPropagation()}>
-        <button className="modal-close" onClick={onClose}>×</button>
+        <button className="modal-close" onClick={onClose} aria-label={t('nav.close')}>×</button>
 
         {step === 'auth' && (
           <>
-            <div className="modal-title">Verify Your Identity</div>
-            <p className="modal-subtitle">Sign in with Google to prevent duplicate registrations and secure your seat.</p>
+            <h2 className="modal-title">{t('join.title')}</h2>
+            <p className="modal-subtitle">{t('join.sub')}</p>
             <button className="google-btn" onClick={handleGoogleAuth} disabled={loading}>
-              {loading ? <span>Verifying...</span> : (<><GoogleIcon /><span>Continue with Google</span></>)}
+              {loading ? <span>{t('join.verifying')}</span> : (<><GoogleIcon /><span>{t('join.google')}</span></>)}
             </button>
-            <div id="google-signin-fallback" style={{ marginTop: '1rem', display: 'flex', justifyContent: 'center' }} />
-            {error && <p style={{ color: 'var(--signal)', fontSize: '0.85rem', marginTop: '1rem', textAlign: 'center' }}>{error}</p>}
+            <div id="google-signin-fallback" style={{ marginTop: 'var(--space-md)', display: 'flex', justifyContent: 'center' }} />
+            {error && <p className="form-error">{error}</p>}
           </>
         )}
 
         {step === 'welcome' && existingMember && (
           <div className="welcome-back">
-            <div className="modal-title">Welcome back, {existingMember.firstName}.</div>
-            <p className="modal-subtitle">Your seat is secured. You are Founding Member #{existingMember.memberNumber}.</p>
-            <div className="wb-badge">◆ Founding Member</div>
-          </div>
-        )}
-
-        {step === 'blocked' && (
-          <div className="welcome-back">
-            <div className="modal-title">You're already a Founding Delegate</div>
-            <p className="modal-subtitle">This account is registered as a Delegate. One account can be a Founder or a Delegate, not both.</p>
-            <div className="wb-badge">◆ Founding Delegate</div>
+            <h2 className="modal-title">{t('join.backTitle', { name: existingMember.firstName })}</h2>
+            <p className="modal-subtitle">{t('join.backSub', { n: existingMember.memberNumber })}</p>
           </div>
         )}
 
         {step === 'form' && (
           <>
-            <div className="modal-title">Claim Your Founding Seat</div>
-            <p className="modal-subtitle">Seat #{count + 1} of {MAX}. Once engraved, your name stands.</p>
+            <h2 className="modal-title">{t('join.formTitle')}</h2>
+            <p className="modal-subtitle">{t('join.formSub')}</p>
 
             <div className="form-group">
-              <label className="form-label">Full Name</label>
-              <input className="form-input" value={fullName} onChange={e => setFullName(e.target.value)} placeholder="Your full name" />
+              <label className="form-label" htmlFor="reg-name">{t('join.name')}</label>
+              <input id="reg-name" className="form-input" value={fullName}
+                onChange={e => setFullName(e.target.value)} placeholder={t('join.namePh')} />
             </div>
 
             <div className="form-group">
-              <label className="form-label">Grade</label>
-              <select className="form-select" value={grade} onChange={e => setGrade(e.target.value)}>
-                <option value="">Select grade</option>
+              <label className="form-label" htmlFor="reg-grade">{t('join.grade')}</label>
+              <select id="reg-grade" className="form-select" value={grade} onChange={e => setGrade(e.target.value)}>
+                <option value="">{t('join.gradePh')}</option>
                 {['9th', 'S1', 'S2', 'S3', 'S4', 'S5', 'S6'].map(g => (<option key={g} value={g}>{g}</option>))}
               </select>
             </div>
 
             <div className="form-group">
-              <label className="form-label">Class</label>
-              <input className="form-input" value={classGroup} onChange={e => setClassGroup(e.target.value)} placeholder="e.g. S1-1, 904" />
+              <label className="form-label" htmlFor="reg-class">{t('join.class')}</label>
+              <input id="reg-class" className="form-input" value={classGroup}
+                onChange={e => setClassGroup(e.target.value)} placeholder="S1-1 · 904" />
             </div>
 
-            <button className="submit-btn" onClick={handleSubmit} disabled={!fullName || !grade || !classGroup || loading}>
-              {loading ? 'Engraving...' : 'Engrave My Name'}
+            <button className="submit-btn" onClick={handleSubmit}
+              disabled={!fullName || !grade || !classGroup || loading}>
+              {loading ? t('join.saving') : t('join.submit')}
             </button>
           </>
         )}
@@ -502,6 +483,7 @@ function RegistrationModal({ onClose, onSuccess, count, preAuth }: {
 
 /* ─── Profile Editor Modal ─── */
 function ProfileEditorModal({ member, onClose, onUpdate, numberLabel, saveFn }: { member: Member; onClose: () => void; onUpdate: () => void; numberLabel?: string; saveFn?: (email: string, updates: Partial<Pick<Member, 'fullName' | 'firstName' | 'grade' | 'classGroup' | 'avatar' | 'avatarName' | 'bio'>>) => Promise<any> }) {
+  const t = useT();
   const [fullName, setFullName] = useState(member.fullName);
   const [grade, setGrade] = useState(member.grade);
   const [classGroup, setClassGroup] = useState(member.classGroup);
@@ -922,13 +904,13 @@ function ProfileEditorModal({ member, onClose, onUpdate, numberLabel, saveFn }: 
               <div className="profile-avatar-placeholder">◆</div>
             )}
             <div style={{ fontSize: '0.7rem', color: 'var(--accent-lift)' }}>
-              {selectedAvatar?.name || 'No avatar selected'}
+              {selectedAvatar?.name || t('avatar.none')}
             </div>
           </div>
         </div>
 
         <button className="submit-btn" onClick={handleSave} disabled={saving} style={{ marginTop: '2rem' }}>
-          {saving ? 'Saving...' : 'Save Profile'}
+          {saving ? t('profile.saving') : t('profile.save')}
         </button>
       </div>
     </div>
@@ -945,6 +927,7 @@ function FounderDetailModal({ member, displayTitle, onClose, isAdmin, onAdminEdi
   onToggleMain: (id: string, isMain: boolean) => void;
   onDelete: (id: string, name: string) => void;
 }) {
+  const t = useT();
   return (
     <div className="detail-overlay" onClick={onClose}>
       <div className="detail-card" onClick={e => e.stopPropagation()} style={{ textAlign: 'center' }}>
@@ -957,41 +940,24 @@ function FounderDetailModal({ member, displayTitle, onClose, isAdmin, onAdminEdi
         )}
 
         <div className="detail-name">{member.fullName}</div>
-        <div className="detail-meta">Grade {member.grade} • Class {member.classGroup}</div>
+        <div className="detail-meta">{t('detail.meta', { grade: member.grade, class: member.classGroup })}</div>
 
-        <div className="detail-badge" style={{
-          background: member.isMainFounder ? 'linear-gradient(135deg, #2f63d6, #84b6ff)' : '',
-          color: member.isMainFounder ? '#fff' : '',
-          borderColor: member.isMainFounder ? '#84b6ff' : '',
-          fontWeight: member.isMainFounder ? 700 : 600
-        }}>
-          {member.isMainFounder && '★ '} {displayTitle}
+        <div className={`detail-badge ${member.isMainFounder ? 'is-chair' : ''}`}>
+          {member.isMainFounder && <span aria-hidden="true">★ </span>}{displayTitle}
         </div>
 
-        {member.isMainFounder && (
-          <div className="meeting-notice" style={{
-            background: 'rgba(76,141,255,0.12)',
-            border: '1px solid var(--accent)',
-            color: 'var(--accent-lift)',
-            padding: '8px 12px', borderRadius: '6px', fontSize: '0.8rem',
-            marginTop: '1rem', marginBottom: '1rem', fontWeight: 600,
-          }}>
-            A meeting is gonna be host soon, stay updated.
-          </div>
-        )}
-
-        {member.avatarName && <div className="detail-anime-label">Represented by {member.avatarName}</div>}
+        {member.avatarName && <div className="detail-anime-label">{t('detail.avatar', { name: member.avatarName })}</div>}
         {member.bio && <div className="detail-bio">"{member.bio}"</div>}
 
         {isAdmin && (
           <div className="admin-panel">
-            <div className="admin-panel-label">Administrator Controls</div>
+            <div className="admin-panel-label">{t('admin.controls')}</div>
             <div className="admin-panel-actions">
-              <button className="admin-act" onClick={() => onAdminEdit(member)}>Edit Photo &amp; Quote</button>
+              <button className="admin-act" onClick={() => onAdminEdit(member)}>{t('detail.edit')}</button>
               <button className="admin-act" onClick={() => onToggleMain(member.id, !member.isMainFounder)}>
-                {member.isMainFounder ? 'Unset Main Founder' : 'Set as Main Founder'}
+                {member.isMainFounder ? t('admin.unmakeHead') : t('admin.makeHead')}
               </button>
-              <button className="admin-act danger" onClick={() => onDelete(member.id, member.fullName)}>Remove Member</button>
+              <button className="admin-act danger" onClick={() => onDelete(member.id, member.fullName)}>{t('admin.remove')}</button>
             </div>
           </div>
         )}
@@ -1002,207 +968,221 @@ function FounderDetailModal({ member, displayTitle, onClose, isAdmin, onAdminEdi
 
 /* ─── Certificate ─── */
 function Certificate({ member, onClose }: { member: Member; onClose: () => void }) {
+  const t = useT();
   useEffect(() => {
     confetti({ particleCount: 150, spread: 80, origin: { y: 0.5 }, colors: CONFETTI_BLUES });
-    const t = setTimeout(() => confetti({ particleCount: 80, spread: 120, origin: { y: 0.4 }, colors: CONFETTI_BLUES }), 600);
-    return () => clearTimeout(t);
+    const again = setTimeout(() => confetti({ particleCount: 80, spread: 120, origin: { y: 0.4 }, colors: CONFETTI_BLUES }), 600);
+    return () => clearTimeout(again);
   }, []);
 
   return (
     <div className="certificate-overlay" onClick={onClose}>
       <div className="certificate" onClick={e => e.stopPropagation()}>
-        <div className="cert-ornament">Founding Charter</div>
-        <div className="cert-title">This certifies that</div>
+        <div className="cert-ornament">{t('nav.council')}</div>
         <div className="cert-name">{member.fullName}</div>
-        <div className="cert-number">
-          is <strong>Founding Member #{member.memberNumber}</strong> of the<br />
-          {SCHOOL} Model United Nations Club
-        </div>
-        <div className="cert-seal">◆</div>
-        <div className="cert-footer">Established 2026 · Youhua School</div>
-        <button className="cert-close-btn" onClick={onClose}>Close</button>
+        <div className="cert-number">{t('council.seat', { n: member.memberNumber })}</div>
+        <div className="cert-seal" aria-hidden="true">◆</div>
+        <div className="cert-footer">{t('foot.name')}</div>
+        <button className="cert-close-btn" onClick={onClose}>{t('nav.close')}</button>
       </div>
     </div>
   );
 }
 
-/* ─── The Privilege ───
-   Three plates, deliberately unequal: the lead plate owns both rows and
-   carries the argument, the two short plates annotate it. A row of three
-   identical cards would say the same thing three times. */
-function ValueSection() {
-  const cards = [
-    {
-      title: 'Your name stays on this wall',
-      text: 'Every founder is listed in the Hall of Founders on this site, by name and by number, for as long as the club exists. It is a record, not a badge that expires when you graduate.',
-      featured: true,
-    },
-    {
-      title: 'It holds up on an application',
-      text: 'Founding Member is a verifiable position you can put on the Common App, UCAS, or any university portfolio, and defend in an interview.',
-    },
-    {
-      title: 'You write the rules first',
-      text: 'The first fifteen decide how this club debates, who it sends to conference, and what it stands for. Everyone after you inherits those decisions.',
-    },
+/* ─── What MUN is, and what the UN is ───
+   This replaces the old "why become a founding member" pitch. Nobody needs to
+   be sold a seat; they need to know what the thing actually is. Two spreads,
+   each a definition rather than a benefit: the club, then the institution it
+   models. Set as a definition list, because a row of equal cards would flatten
+   three unequal ideas into one shape. */
+function MunSection() {
+  const t = useT();
+  const points = [
+    { term: t('mun.p1.term'), desc: t('mun.p1.desc') },
+    { term: t('mun.p2.term'), desc: t('mun.p2.desc') },
+    { term: t('mun.p3.term'), desc: t('mun.p3.desc') },
   ];
-
   return (
-    <section className="section" id="value">
-      <div className="value-head">
-        <h2 className="section-title">What a <span className="gold-accent">founding seat</span> actually gets you</h2>
-        <p className="section-lede">
-          Three things, and they outlast the year you claim them in.
-        </p>
+    <section className="section" id="about">
+      <div className="explainer">
+        <h2 className="section-title">
+          {t('mun.title1')} <span className="gold-accent">{t('mun.titleAccent')}</span> {t('mun.title2')}
+        </h2>
+        <p className="about-intro">{t('mun.lede')}</p>
       </div>
-      <div className="cards-grid">
-        {cards.map((c, i) => (<ValueCard key={i} {...c} />))}
+
+      <div className="pillars">
+        {points.map((p) => (
+          <div key={p.term} className="pillar">
+            <h3 className="pillar-word">{p.term}</h3>
+            <p className="pillar-desc">{p.desc}</p>
+          </div>
+        ))}
+      </div>
+
+      <div className="explainer explainer-un">
+        <h2 className="section-title">
+          {t('un.title1')} <span className="gold-accent">{t('un.titleAccent')}</span> {t('un.title2')}
+        </h2>
+        <p className="about-intro">{t('un.lede')}</p>
       </div>
     </section>
   );
 }
 
-/* The tilt lives on the inner face, never on the card itself: the scroll
-   rig owns the card's transform, and two rigs writing one transform is
-   how you get jitter. The title and body sit at their own Z inside the
-   face, so tilting shows real parallax between them instead of sliding
-   one flat sheet around. */
-function ValueCard({ title, text, featured }: { title: string; text: string; featured?: boolean }) {
-  const faceRef = useRef<HTMLDivElement>(null);
+/* ═══ Seating ═══════════════════════════════════════════════════
+   The horseshoe of the Security Council chamber, parameterised by arc length
+   so that N members are genuinely evenly spaced for any N, and every seat
+   glides to a recomputed position the moment someone joins or leaves.
 
-  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
-    const face = faceRef.current;
-    if (!face) return;
-    const rect = face.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
-    const rx = ((y - rect.height / 2) / rect.height) * -6;
-    const ry = ((x - rect.width / 2) / rect.width) * 6;
-    face.style.transform = `rotateX(${rx.toFixed(2)}deg) rotateY(${ry.toFixed(2)}deg)`;
-    face.style.setProperty('--mx', `${((x / rect.width) * 100).toFixed(1)}%`);
-    face.style.setProperty('--my', `${((y / rect.height) * 100).toFixed(1)}%`);
-  };
-  const handleMouseLeave = () => { if (faceRef.current) faceRef.current.style.transform = ''; };
+   The subtlety is that the table is drawn in percentages of a box that is not
+   square, so a step of 1% across the bottom is a different physical distance
+   from a step of 1% up the side. Walking the path in raw percentage units
+   therefore bunches seats around the turns. Everything below is measured in
+   an aspect-corrected space (x scaled by the box's width/height ratio), the
+   distances are accumulated there, and only the final point is converted back
+   to percentages for layout.
+════════════════════════════════════════════════════════════════ */
 
-  return (
-    <div className={`value-card ${featured ? 'featured' : ''}`}>
-      <div
-        className="value-card-face"
-        ref={faceRef}
-        onMouseMove={handleMouseMove}
-        onMouseLeave={handleMouseLeave}
-      >
-        <h3 className="card-title">{title}</h3>
-        <p className="card-text">{text}</p>
-      </div>
-    </div>
-  );
-}
+/* Geometry of the table, in percent of the chamber box. */
+const TABLE = { left: 15, right: 85, top: 21, bottom: 90, radius: 15 };
 
-/* ─── Hall of Founders ─── */
-/* Seat coordinates (in %) evenly spaced along a ROUNDED U / horseshoe (opens at top).
-   Rounded corners spread the seats smoothly so they never bunch at the 90° turns. */
-function uSeatPositions(n: number) {
-  const left = 17, right = 83, top = 22, bottom = 88, r = 13;
-  const arm = (bottom - r) - top;        // vertical arm length
-  const corner = (Math.PI / 2) * r;      // quarter-circle arc length
-  const base = (right - r) - (left + r); // straight bottom run
-  const total = arm + corner + base + corner + arm;
-  const pts: { x: number; y: number }[] = [];
-  for (let i = 0; i < n; i++) {
-    let d = total * ((i + 0.5) / n);
-    let x: number, y: number;
-    if (d <= arm) {                                   // left arm (down)
-      x = left; y = top + d;
-    } else if (d <= arm + corner) {                   // bottom-left corner
-      const ang = Math.PI - (d - arm) / r;            // 180° → 90°
-      x = (left + r) + r * Math.cos(ang);
-      y = (bottom - r) + r * Math.sin(ang);
-    } else if (d <= arm + corner + base) {            // bottom run
-      x = (left + r) + (d - arm - corner); y = bottom;
-    } else if (d <= arm + corner + base + corner) {   // bottom-right corner
-      const ang = (Math.PI / 2) - (d - arm - corner - base) / r; // 90° → 0°
-      x = (right - r) + r * Math.cos(ang);
-      y = (bottom - r) + r * Math.sin(ang);
-    } else {                                          // right arm (up)
-      x = right; y = (bottom - r) - (d - arm - corner - base - corner);
-    }
-    pts.push({ x, y });
+type Pt = { x: number; y: number };
+
+/* Samples the horseshoe densely, then walks it at constant physical speed.
+   `ratio` is the chamber's width / height, which converts x-percent into the
+   same physical unit as y-percent. */
+function seatPositions(n: number, ratio: number): Pt[] {
+  if (n <= 0) return [];
+  const { left, right, top, bottom, radius: r } = TABLE;
+  const yBend = bottom - r;
+
+  /* One continuous path: down the left arm, round the bottom-left turn,
+     along the bottom, round the bottom-right turn, up the right arm. */
+  const path: Pt[] = [];
+  const push = (x: number, y: number) => path.push({ x, y });
+  const STEPS = 160;
+
+  for (let i = 0; i <= STEPS; i++) push(left, top + (yBend - top) * (i / STEPS));
+  for (let i = 1; i <= STEPS; i++) {
+    const a = Math.PI - (Math.PI / 2) * (i / STEPS);      // 180° → 90°
+    push(left + r + r * Math.cos(a), yBend + r * Math.sin(a));
   }
-  return pts;
+  for (let i = 1; i <= STEPS; i++) push((left + r) + ((right - r) - (left + r)) * (i / STEPS), bottom);
+  for (let i = 1; i <= STEPS; i++) {
+    const a = (Math.PI / 2) * (1 - i / STEPS);            // 90° → 0°
+    push(right - r + r * Math.cos(a), yBend + r * Math.sin(a));
+  }
+  for (let i = 1; i <= STEPS; i++) push(right, yBend - (yBend - top) * (i / STEPS));
+
+  /* Cumulative physical length along the sampled path. */
+  const cum: number[] = [0];
+  for (let i = 1; i < path.length; i++) {
+    const dx = (path[i].x - path[i - 1].x) * ratio;
+    const dy = path[i].y - path[i - 1].y;
+    cum.push(cum[i - 1] + Math.hypot(dx, dy));
+  }
+  const total = cum[cum.length - 1];
+
+  /* Walk it at even intervals, half a step in from each end so the first and
+     last seats sit inside the arms rather than on their tips. */
+  const at = (d: number): Pt => {
+    let lo = 0, hi = cum.length - 1;
+    while (lo < hi) { const mid = (lo + hi) >> 1; if (cum[mid] < d) lo = mid + 1; else hi = mid; }
+    if (lo === 0) return path[0];
+    const span = cum[lo] - cum[lo - 1];
+    const t = span > 0 ? (d - cum[lo - 1]) / span : 0;
+    return {
+      x: path[lo - 1].x + (path[lo].x - path[lo - 1].x) * t,
+      y: path[lo - 1].y + (path[lo].y - path[lo - 1].y) * t,
+    };
+  };
+
+  return Array.from({ length: n }, (_, i) => at(total * ((i + 0.5) / n)));
 }
+
 type EnrichedMember = Member & { displayTitle: string };
 
-function Seat({ member, isMain, onClick, selected, editing }: {
-  member: EnrichedMember | null;
+function Seat({ member, isMain, onClick, selected, editing, label }: {
+  member: EnrichedMember;
   isMain?: boolean;
   onClick: (m: EnrichedMember) => void;
   selected?: boolean;
   editing?: boolean;
+  label: string;
 }) {
-  /* .seat-upright counter-rotates the floor's tilt, so the seat stands
-     up out of the plane instead of lying flat on it. The scroll rig
-     animates .seat itself, which is why the counter-rotation needs its
-     own element rather than sharing one transform. */
-  if (!member) {
-    return (
-      <div className="seat-upright">
-        <div className={`seat vacant ${isMain ? 'main' : ''}`}>
-          <div className="seat-avatar vacant" aria-hidden="true">{isMain ? '★' : ''}</div>
-          <div className="seat-label">{isMain ? 'Main Founder' : 'Vacant'}</div>
-        </div>
-      </div>
-    );
-  }
   const bestie = member.bestieColor;
   return (
     <div className="seat-upright">
       <button
         className={`seat filled ${isMain ? 'main' : ''} ${selected ? 'selected' : ''} ${editing ? 'editing' : ''} ${bestie ? 'has-bestie' : ''}`}
         onClick={() => onClick(member)}
-        title={editing ? `Select ${member.firstName}` : `View ${member.fullName}'s dossier`}
+        title={member.fullName}
         style={bestie ? ({ ['--bestie' as any]: bestie }) : undefined}
       >
         {member.avatar
           ? <img src={member.avatar} className="seat-avatar" alt="" />
-          : <div className="seat-avatar placeholder" aria-hidden="true">◆</div>}
-        {bestie && <span className="bestie-badge" style={{ background: bestie }}>♥ bestie</span>}
+          : <span className="seat-avatar placeholder" aria-hidden="true">{(member.firstName || '?').charAt(0).toUpperCase()}</span>}
+        {bestie && <span className="bestie-dot" style={{ background: bestie }} aria-hidden="true" />}
         <span className="seat-label">
-          {isMain && <span aria-hidden="true">★ </span>}
           <span className="seat-name">{member.firstName}</span>
-          <span className="seat-grade">{isMain ? 'Head of Council' : member.grade}</span>
+          <span className="seat-grade">{label}</span>
         </span>
       </button>
     </div>
   );
 }
 
-function HallOfFounders({ members, onSeatClick, isAdmin }: { members: EnrichedMember[]; onSeatClick: (m: EnrichedMember) => void; isAdmin: boolean }) {
-  const { ref } = useInView(0.1);
-  const complete = members.length >= MAX;
-  const mains = members.filter(m => m.isMainFounder);
-  const others = members.filter(m => !m.isMainFounder);
-  const remaining = MAX - members.length;
+/* ─── The Council ───
+   Reference: the UN Security Council chamber, Arnstein Arneberg, 1952. The
+   horseshoe table is his, so that everyone seated can look everyone else in
+   the eye. The blue ground carrying a gold damask of corn, hearts and anchors
+   — hope, charity and faith — is Else Poulsson's wall fabric for that room,
+   drawn here as a real repeating motif rather than a generic glow, and the
+   rising form behind the table answers Per Krohg's phoenix on its east wall.
 
-  const [editMode, setEditMode] = useState<'none' | 'arrange' | 'bestie'>('none');
+   The table is open: it seats however many people have joined, and every seat
+   is recomputed and glides to its new position whenever that number changes. */
+function CouncilSection({ members, onSeatClick, isAdmin, onAssignOffice }: {
+  members: EnrichedMember[];
+  onSeatClick: (m: EnrichedMember) => void;
+  isAdmin: boolean;
+  onAssignOffice: (m: EnrichedMember) => void;
+}) {
+  const t = useT();
+  const chamberRef = useRef<HTMLDivElement>(null);
+  const [ratio, setRatio] = useState(800 / 640);
+
+  /* The seating maths needs the chamber's real aspect to keep spacing even,
+     and that changes with the breakpoint, so it is measured rather than
+     assumed. */
+  useEffect(() => {
+    const el = chamberRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(([e]) => {
+      const { width, height } = e.contentRect;
+      if (width > 0 && height > 0) setRatio(width / height);
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  const [editMode, setEditMode] = useState<'none' | 'arrange' | 'bestie' | 'office'>('none');
   const [selected, setSelected] = useState<string[]>([]);
-
-  // Leave edit mode if admin logs out.
   useEffect(() => { if (!isAdmin) { setEditMode('none'); setSelected([]); } }, [isAdmin]);
 
-  const headSpacing = 17; // % between adjacent heads
+  const head = members.filter(m => m.isMainFounder);
+  const others = members.filter(m => !m.isMainFounder);
 
-  // Order the non-main members: the admin's explicit `seat` wins, otherwise join order.
   const byJoin = [...others].sort((a, b) => a.joinedAt.localeCompare(b.joinedAt));
   const joinIndex = new Map(byJoin.map((m, i) => [m.id, i] as const));
   const orderKey = (m: EnrichedMember) => (typeof m.seat === 'number' ? m.seat : (joinIndex.get(m.id) ?? 0));
-  const orderedOthers = [...others].sort((a, b) => orderKey(a) - orderKey(b));
-  // The horseshoe sizes itself to exactly however many people there are —
-  // evenly spaced, no vacant seats, nobody hidden.
-  const positions = uSeatPositions(orderedOthers.length);
+  const seated = [...others].sort((a, b) => orderKey(a) - orderKey(b));
+  const positions = seatPositions(seated.length, ratio);
 
   const handleSeatClick = (m: EnrichedMember) => {
     if (editMode === 'none' || !isAdmin) { onSeatClick(m); return; }
+    if (editMode === 'office') { onAssignOffice(m); return; }
     setSelected(prev => {
       if (prev.includes(m.id)) return prev.filter(x => x !== m.id);
       const next = [...prev, m.id];
@@ -1210,14 +1190,13 @@ function HallOfFounders({ members, onSeatClick, isAdmin }: { members: EnrichedMe
     });
   };
 
-  // Arrange mode: as soon as two are selected, swap their seats (smooth glide).
   useEffect(() => {
     if (editMode !== 'arrange' || selected.length !== 2) return;
     const [aId, bId] = selected;
-    const ai = orderedOthers.findIndex(m => m.id === aId);
-    const bi = orderedOthers.findIndex(m => m.id === bId);
+    const ai = seated.findIndex(m => m.id === aId);
+    const bi = seated.findIndex(m => m.id === bId);
     if (ai >= 0 && bi >= 0) {
-      const next = [...orderedOthers];
+      const next = [...seated];
       [next[ai], next[bi]] = [next[bi], next[ai]];
       reorderMembers(next.map(m => m.id));
     }
@@ -1227,7 +1206,6 @@ function HallOfFounders({ members, onSeatClick, isAdmin }: { members: EnrichedMe
 
   const pairAreBesties = selected.length === 2 &&
     members.find(m => m.id === selected[0])?.bestieWith === selected[1];
-
   const makeBesties = async () => {
     if (selected.length !== 2) return;
     await setBesties(selected[0], selected[1], nextBestieColor(members));
@@ -1240,125 +1218,173 @@ function HallOfFounders({ members, onSeatClick, isAdmin }: { members: EnrichedMe
   };
 
   const editing = editMode !== 'none';
+  const tool = (id: 'arrange' | 'bestie' | 'office', label: string) => (
+    <button className={`council-tool ${editMode === id ? 'active' : ''}`}
+      onClick={() => { setEditMode(editMode === id ? 'none' : id); setSelected([]); }}>{label}</button>
+  );
 
   return (
-    <section className="hall" id="hall" ref={ref}>
+    <section className="hall" id="council">
       <div className="hall-inner">
-        <h2 className="section-title">The <span className="gold-accent">Hall of Founders</span></h2>
-        <p className="hall-subtitle">Everyone here signed on before the room was full.</p>
-        <div className="hall-divider" />
+        <h2 className="section-title">
+          {t('council.title1')} <span className="gold-accent">{t('council.accent')}</span>
+        </h2>
+        <p className="hall-subtitle">{members.length ? t('council.sub') : t('council.empty')}</p>
 
         {isAdmin && (
           <div className="council-admin">
-            <button className={`council-tool ${editMode === 'arrange' ? 'active' : ''}`}
-              onClick={() => { setEditMode(editMode === 'arrange' ? 'none' : 'arrange'); setSelected([]); }}>
-              ↔ Arrange Seats
-            </button>
-            <button className={`council-tool ${editMode === 'bestie' ? 'active' : ''}`}
-              onClick={() => { setEditMode(editMode === 'bestie' ? 'none' : 'bestie'); setSelected([]); }}>
-              ♥ Besties
-            </button>
-            {editMode === 'arrange' && <span className="council-hint">Tap two founders to swap their seats.</span>}
+            {tool('arrange', t('council.arrange'))}
+            {tool('bestie', t('council.besties'))}
+            {tool('office', t('council.offices'))}
+            {editMode === 'arrange' && <span className="council-hint">{t('council.hintArrange')}</span>}
+            {editMode === 'office' && <span className="council-hint">{t('council.hintOffice')}</span>}
             {editMode === 'bestie' && (
               <span className="council-hint">
-                {selected.length < 2 ? 'Tap two founders to pair them.' : (
+                {selected.length < 2 ? t('council.hintBestie') : (
                   pairAreBesties
-                    ? <button className="council-go danger" onClick={unpair}>Unpair</button>
-                    : <button className="council-go" onClick={makeBesties}>Make Besties ♥</button>
+                    ? <button className="council-go danger" onClick={unpair}>{t('council.unpair')}</button>
+                    : <button className="council-go" onClick={makeBesties}>{t('council.pair')}</button>
                 )}
               </span>
             )}
           </div>
         )}
 
-        {/* The horseshoe is not drawn in perspective, it is in it: the stage
-            plane is rotated on X, the emblem lies flat on that floor, and
-            every seat stands upright out of it. The scroll rig scrubs
-            --tilt, so the camera lifts as you descend into the room. */}
-        <div className={`hall-chamber ${complete ? 'complete' : ''} ${editing ? 'editing' : ''}`}>
+        <div className={`hall-chamber ${editing ? 'editing' : ''}`} ref={chamberRef}>
+          <ChamberRoom />
           <div className="chamber-stage">
             <div className="chamber-dais" />
             <div className="chamber-floor" />
-            <div className="chamber-emblem" aria-hidden="true">◆<span>The Council</span></div>
-
-            {/* Head of the U — Main Founder(s) only; nothing shown if there is none */}
-            {mains.map((m, i) => {
-              const x = 50 + (i - (mains.length - 1) / 2) * headSpacing;
+            <div className="chamber-emblem" aria-hidden="true">◆<span>{t('nav.council')}</span></div>
+            {head.map((m, i) => (
+              <div className="seat-wrap is-main" key={m.id}
+                style={{ left: `${50 + (i - (head.length - 1) / 2) * 17}%`, top: '9%' }}>
+                <Seat member={m} isMain onClick={handleSeatClick}
+                  selected={selected.includes(m.id)} editing={editing} label={t('council.head')} />
+              </div>
+            ))}
+            {seated.map((m, i) => {
+              const pt = positions[i];
+              if (!pt) return null;
               return (
-                <div className="seat-wrap is-main" key={m.id} style={{ left: `${x}%`, top: '13%' }}>
-                  <Seat member={m} isMain onClick={handleSeatClick} selected={selected.includes(m.id)} editing={editing} />
-                </div>
-              );
-            })}
-
-            {/* Perimeter — exactly the non-main members, evenly spaced, no vacancies */}
-            {orderedOthers.map((m, i) => {
-              const p = positions[i];
-              return (
-                <div className="seat-wrap seat-movable" key={m.id} style={{ left: `${p.x}%`, top: `${p.y}%` }}>
-                  <Seat member={m} onClick={handleSeatClick} selected={selected.includes(m.id)} editing={editing} />
+                <div className="seat-wrap seat-movable" key={m.id}
+                  style={{ left: `${pt.x.toFixed(3)}%`, top: `${pt.y.toFixed(3)}%` }}>
+                  <Seat member={m} onClick={handleSeatClick}
+                    selected={selected.includes(m.id)} editing={editing} label={m.grade} />
                 </div>
               );
             })}
           </div>
         </div>
-
-        {complete
-          ? <div className="complete-banner">The Council is Complete</div>
-          : <p className="chamber-hint">{remaining} seat{remaining !== 1 ? 's' : ''} still open in the chamber. Select any founder to read their dossier.</p>}
       </div>
     </section>
   );
 }
 
-/* ─── The Mission ───
-   A definition list rather than a card row: each term is weighted by the
-   space it is given, and the rules run the full measure. The metric strip
-   that used to sit here quoted numbers this club has no way to stand
-   behind, so it is gone. */
-function AboutSection() {
-  const pillars = [
-    { word: 'Debate', desc: 'You take a position you did not choose, and you defend it against a room that has read the same brief. It is the fastest way anyone has found to learn what your own argument is actually made of.' },
-    { word: 'Diplomacy', desc: 'A resolution passes when enough delegates who disagree can still sign the same page. Getting there is a skill, and it is the one that transfers to everything else you will do.' },
-    { word: 'Record', desc: 'Committees keep minutes. Positions are attributed. What you said in session is written down under your country and your name, which is a rarer kind of accountability than most classrooms offer.' },
-  ];
-
+/* The room itself, drawn once. Poulsson's damask is a real tiling motif —
+   a sheaf of corn, a heart and an anchor — not an abstract texture. */
+function ChamberRoom() {
   return (
-    <section className="section about-section" id="about">
-      <h2 className="section-title">What Model United Nations <span className="gold-accent">actually is</span></h2>
-      <p className="about-intro">
-        You are assigned a country. You read its position on a real question in front of the real UN,
-        and then you spend a session arguing it in a room of people doing the same for theirs.
-      </p>
+    <div className="chamber-room" aria-hidden="true">
+      <svg className="chamber-wall" viewBox="0 0 960 800" preserveAspectRatio="xMidYMid slice" focusable="false">
+        <defs>
+          <pattern id="poulsson" width="60" height="72" patternUnits="userSpaceOnUse">
+            <g className="damask">
+              {/* corn — hope */}
+              <path d="M15 12 v16 M15 14 q-5 2 -5 6 q5 0 5 -4 M15 14 q5 2 5 6 q-5 0 -5 -4
+                       M15 20 q-5 2 -5 6 q5 0 5 -4 M15 20 q5 2 5 6 q-5 0 -5 -4" />
+              {/* heart — charity */}
+              <path d="M45 22 q-7 -8 -11 -3 q-4 5 4 11 l7 7 l7 -7 q8 -6 4 -11 q-4 -5 -11 3 z" />
+              {/* anchor — faith */}
+              <path d="M30 48 v20 M30 48 a3 3 0 1 1 0.1 0 M23 55 h14 M20 63 q10 12 20 0" />
+            </g>
+          </pattern>
+          <radialGradient id="phoenix" cx="50%" cy="86%" r="62%">
+            <stop offset="0%"   className="ph-hot" />
+            <stop offset="46%"  className="ph-mid" />
+            <stop offset="100%" className="ph-out" />
+          </radialGradient>
+        </defs>
+        <rect width="960" height="800" className="wall-ground" />
+        <rect width="960" height="800" fill="url(#poulsson)" />
+        {/* Krohg's phoenix rose from the dark at the bottom of his mural into
+            calm at the top; this is that gradient, not a copy of the painting. */}
+        <rect width="960" height="800" fill="url(#phoenix)" />
+      </svg>
+      <span className="chamber-rail" />
+    </div>
+  );
+}
 
-      <div className="pillars">
-        {pillars.map((p) => (
-          <div key={p.word} className="pillar">
-            <h3 className="pillar-word">{p.word}</h3>
-            <p className="pillar-desc">{p.desc}</p>
-          </div>
-        ))}
+/* ─── The Secretariat ───
+   Ported from the Round Table branch: the offices and their duties are that
+   work. The presentation is not — the turning nebula table is left behind in
+   favour of plates that simply sit still and can be read. */
+function SecretariatSection({ members, onSelect }: {
+  members: EnrichedMember[];
+  onSelect: (m: EnrichedMember) => void;
+}) {
+  const t = useT();
+  return (
+    <section className="section" id="secretariat">
+      <div className="explainer">
+        <h2 className="section-title">
+          {t('off.title1')} <span className="gold-accent">{t('off.accent')}</span>
+        </h2>
+        <p className="section-lede">{t('off.sub')}</p>
       </div>
 
-      <figure className="quote-block">
-        <blockquote className="pull-quote">
-          Education is the most powerful weapon which you can use to change the world.
-        </blockquote>
-        <figcaption className="quote-attr">Nelson Mandela</figcaption>
-      </figure>
+      <div className="office-grid">
+        {ROLES.map((role) => {
+          const holders = members.filter(m => rolesOf(m).includes(role.id));
+          return (
+            <article className={`office ${role.id === 'president' ? 'is-chair' : ''}`}
+              key={role.id} style={{ ['--office' as any]: role.hue }}>
+              <header className="office-head">
+                <span className="office-glyph" aria-hidden="true">{role.glyph}</span>
+                <div>
+                  <h3 className="office-zh">{t(`role.${role.id}.en` as any)}</h3>
+                  <p className="office-en">{role.zh}</p>
+                </div>
+              </header>
+              <p className="office-duty">{t(`role.${role.id}.duty` as any)}</p>
+              <footer className="office-holders">
+                <span className="office-holders-label">{holders.length ? t('off.heldBy') : t('off.vacant')}</span>
+                {holders.length > 0 && (
+                  <ul className="office-list">
+                    {holders.map(h => (
+                      <li key={h.id}>
+                        <button className="office-person" onClick={() => onSelect(h)}>
+                          {h.avatar
+                            ? <img src={h.avatar} alt="" className="office-face" />
+                            : <span className="office-face placeholder" aria-hidden="true">{(h.firstName || '?').charAt(0).toUpperCase()}</span>}
+                          {h.fullName}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </footer>
+            </article>
+          );
+        })}
+      </div>
     </section>
   );
 }
 
 /* ─── Ticker ─── */
 function Ticker({ members }: { members: Member[] }) {
+  const t = useT();
   if (members.length === 0) return null;
   const items = [...members, ...members];
   return (
-    <div className="ticker-bar">
+    <div className="ticker-bar" aria-hidden="true">
       <div className="ticker-track">
         {items.map((m, i) => (
-          <span key={i} className="ticker-item">{m.firstName}, {m.grade} just joined</span>
+          <span key={i} className="ticker-item">
+            {t('ticker.joined', { name: m.firstName, grade: m.grade })}
+          </span>
         ))}
       </div>
     </div>
@@ -1454,11 +1480,8 @@ function useScrollFX() {
         scrollTrigger: { trigger: '.hero', start: 'top top', end: '12% top', scrub: true } });
 
       /* ── PAGE PLANES ── */
-      gsap.utils.toArray<HTMLElement>('.section-title, .about-intro, .hall-subtitle, .delegation-subtitle, .section-lede')
+      gsap.utils.toArray<HTMLElement>('.section-title, .about-intro, .hall-subtitle, .section-lede')
         .forEach((el) => depthReveal(el, { depth: 460, rise: 54 }));
-
-      gsap.utils.toArray<HTMLElement>('.pull-quote')
-        .forEach((el) => depthReveal(el, { depth: 520, rise: 60, lift: 300 }));
 
       /* Rows stagger in SCROLL space rather than in time: each card
          starts a little later down the page, so the cascade reads the
@@ -1467,9 +1490,8 @@ function useScrollFX() {
         gsap.utils.toArray<HTMLElement>(sel).forEach((el, i) =>
           depthReveal(el, { ...o, offset: i * step }));
 
-      scrollStagger('.value-card', 3.5, { depth: 480, rise: 64 });
       scrollStagger('.pillar', 2.5, { depth: 340, rise: 40 });
-      scrollStagger('.delegate-card', 1.2, { depth: 300, rise: 34 });
+      scrollStagger('.office', 2.0, { depth: 380, rise: 46 });
 
       /* ── THE CHAMBER ──
          The seats stand on a floor plane, so they get shallower depth
@@ -1570,246 +1592,12 @@ function useHeroParallax(active: boolean) {
   }, [active]);
 }
 
-/* ─── Founding Delegates (unlimited tier) ─── */
-function DelegateAvatar({ d, i }: { d: Delegate; i: number }) {
-  if (d.avatar) return <img src={d.avatar} className="delegate-avatar" alt={d.firstName} />;
-  const hue = 205 + (i * 17) % 38;
-  return (
-    <div
-      className="delegate-avatar mono"
-      style={{ background: `linear-gradient(155deg, hsl(${hue} 52% 32%), hsl(${hue} 58% 17%))` }}
-    >
-      {(d.firstName || d.fullName || '?').charAt(0).toUpperCase()}
-    </div>
-  );
-}
-
-function DelegationSection({ delegates, onJoin, onSelect, loggedInDelegate, isFounder, onEditProfile }: {
-  delegates: Delegate[];
-  onJoin: () => void;
-  onSelect: (d: Delegate) => void;
-  loggedInDelegate: Delegate | null;
-  isFounder: boolean;
-  onEditProfile: () => void;
-}) {
-  const { ref } = useInView(0.1);
-  return (
-    <section className="delegation" id="delegation" ref={ref}>
-      <div className="delegation-inner">
-        <h2 className="section-title">Founding <span className="gold-accent">Delegates</span></h2>
-        <p className="delegation-subtitle">
-          The council seats fifteen. The club does not. Founding Delegates are recorded beside the
-          founders, in join order, with no cap on how many.
-        </p>
-        <div className="delegation-count">
-          <span className="delegation-count-num">{delegates.length}</span>
-          {delegates.length === 1 ? 'delegate has joined' : 'delegates have joined'}
-        </div>
-
-        {delegates.length > 0 ? (
-          <div className="delegate-grid">
-            {delegates.map((d, i) => (
-              <button className="delegate-card" key={d.id} onClick={() => onSelect(d)} title={`View ${d.fullName}`}>
-                <DelegateAvatar d={d} i={i} />
-                <div className="delegate-name">{d.firstName}</div>
-                <div className="delegate-meta">{d.grade} · {d.classGroup}</div>
-              </button>
-            ))}
-          </div>
-        ) : (
-          <div className="delegation-empty">No delegates yet. Be the first to stand on the founding record.</div>
-        )}
-
-        <div className="delegation-cta-wrap">
-          {loggedInDelegate ? (
-            <>
-              <MagneticCta onClick={onEditProfile}>Edit Your Delegate Profile →</MagneticCta>
-              <p className="cta-sub">You're Founding Delegate #{loggedInDelegate.delegateNumber}. Your name stands on the record.</p>
-            </>
-          ) : isFounder ? (
-            <p className="cta-sub" style={{ fontSize: '0.8rem' }}>
-              You're a Founding Member. Your seat is in the council above.
-            </p>
-          ) : (
-            <>
-              <MagneticCta onClick={onJoin}>Become a Founding Delegate →</MagneticCta>
-              <p className="cta-sub">Unlimited places. Your name is recorded permanently.</p>
-            </>
-          )}
-        </div>
-      </div>
-    </section>
-  );
-}
-
-function DelegateModal({ onClose, onSuccess, preAuth }: {
-  onClose: () => void;
-  onSuccess: (d: Delegate) => void;
-  preAuth: GoogleUser | null;
-}) {
-  const [step, setStep] = useState<'auth' | 'form' | 'welcome' | 'blocked'>('auth');
-  const [authUser, setAuthUser] = useState<{ name: string; email: string } | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [fullName, setFullName] = useState('');
-  const [grade, setGrade] = useState('');
-  const [classGroup, setClassGroup] = useState('');
-  const [bio, setBio] = useState('');
-  const [created, setCreated] = useState<Delegate | null>(null);
-
-  const applyUser = useCallback((user: { name: string; email: string }) => {
-    setAuthUser({ name: user.name, email: user.email });
-    setFullName(prev => prev || user.name);
-    // One account can't be both: block if this email already holds a Founding Seat.
-    if (isMemberByEmail(user.email)) { setStep('blocked'); return; }
-    const existing = isDelegateByEmail(user.email);
-    if (existing) { setCreated(existing); setStep('welcome'); }
-    else setStep('form');
-  }, []);
-
-  useEffect(() => { if (preAuth) applyUser(preAuth); }, [preAuth, applyUser]);
-
-  // Reliable sign-in: render the official Google button. (The One-Tap prompt
-  // often silently fails to appear, which left "Verifying..." stuck forever.)
-  const btnRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (step !== 'auth' || !btnRef.current) return;
-    let cancelled = false;
-    renderGoogleButton(btnRef.current)
-      .then(u => { if (!cancelled) applyUser(u); })
-      .catch(e => { if (!cancelled) setError(e instanceof Error ? e.message : String(e)); });
-    return () => { cancelled = true; };
-  }, [step, applyUser]);
-
-  const handleSubmit = async () => {
-    if (!fullName || !grade || !classGroup || !authUser) return;
-    setLoading(true);
-    setError(null);
-    try {
-      const d = await addDelegate({
-        fullName,
-        firstName: fullName.split(' ')[0],
-        grade, classGroup, bio,
-        email: authUser.email,
-      });
-      if (d) {
-        setCreated(d);
-        setStep('welcome');
-        onSuccess(d);
-        confetti({ particleCount: 120, spread: 80, origin: { y: 0.5 }, colors: CONFETTI_BLUES });
-      } else {
-        setError('Could not register. This account may already be a founder or a delegate.');
-      }
-    } catch {
-      setError('Saving failed. The delegate list may not be enabled yet. Ask the admin to publish the Firestore rules.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal" onClick={e => e.stopPropagation()}>
-        <button className="modal-close" onClick={onClose}>×</button>
-
-        {step === 'auth' && (
-          <>
-            <div className="modal-title">Join the Delegation</div>
-            <p className="modal-subtitle">Sign in with Google to add your name to the Founding Delegates.</p>
-            <div ref={btnRef} style={{ display: 'flex', justifyContent: 'center', minHeight: 44 }} />
-            {error && <p style={{ color: 'var(--signal)', fontSize: '0.85rem', marginTop: '1rem', textAlign: 'center' }}>{error}</p>}
-          </>
-        )}
-
-        {step === 'form' && (
-          <>
-            <div className="modal-title">Become a Founding Delegate</div>
-            <p className="modal-subtitle">No seat limit. Your name joins the founding record permanently.</p>
-
-            <div className="form-group">
-              <label className="form-label">Full Name</label>
-              <input className="form-input" value={fullName} onChange={e => setFullName(e.target.value)} placeholder="Your full name" />
-            </div>
-            <div className="form-group">
-              <label className="form-label">Grade</label>
-              <select className="form-select" value={grade} onChange={e => setGrade(e.target.value)}>
-                <option value="">Select grade</option>
-                {['9th', 'S1', 'S2', 'S3', 'S4', 'S5', 'S6'].map(g => (<option key={g} value={g}>{g}</option>))}
-              </select>
-            </div>
-            <div className="form-group">
-              <label className="form-label">Class</label>
-              <input className="form-input" value={classGroup} onChange={e => setClassGroup(e.target.value)} placeholder="e.g. S1-1, 904" />
-            </div>
-            <div className="form-group">
-              <label className="form-label">Biography / Quote <span style={{ color: 'var(--text-faint)', textTransform: 'none', letterSpacing: 0 }}>(optional)</span></label>
-              <textarea className="form-textarea" value={bio} onChange={e => setBio(e.target.value)} placeholder="A line about why you're here." maxLength={150} />
-            </div>
-
-            <button className="submit-btn" onClick={handleSubmit} disabled={!fullName || !grade || !classGroup || loading}>
-              {loading ? 'Adding...' : 'Add My Name'}
-            </button>
-          </>
-        )}
-
-        {step === 'welcome' && created && (
-          <div className="welcome-back">
-            <div className="modal-title">Welcome, {created.firstName}.</div>
-            <p className="modal-subtitle">You are Founding Delegate #{created.delegateNumber}. Your name now stands on the record.</p>
-            <div className="wb-badge">◆ Founding Delegate</div>
-          </div>
-        )}
-
-        {step === 'blocked' && (
-          <div className="welcome-back">
-            <div className="modal-title">You're already a Founding Member</div>
-            <p className="modal-subtitle">This account holds a Founding Seat. One account can be a Founder or a Delegate, not both.</p>
-            <div className="wb-badge">◆ Founding Member</div>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function DelegateDetailModal({ delegate, onClose, isAdmin, onAdminEdit, onDelete }: {
-  delegate: Delegate;
-  onClose: () => void;
-  isAdmin: boolean;
-  onAdminEdit: (d: Delegate) => void;
-  onDelete: (id: string, name: string) => void;
-}) {
-  return (
-    <div className="detail-overlay" onClick={onClose}>
-      <div className="detail-card" onClick={e => e.stopPropagation()} style={{ textAlign: 'center' }}>
-        <button className="modal-close" onClick={onClose}>×</button>
-        {delegate.avatar
-          ? <img src={delegate.avatar} className="detail-avatar" alt={delegate.firstName} style={{ margin: '0 auto 1rem', display: 'block' }} />
-          : <div className="detail-avatar-placeholder" style={{ margin: '0 auto 1rem' }}>{(delegate.firstName || '?').charAt(0).toUpperCase()}</div>}
-        <div className="detail-name">{delegate.fullName}</div>
-        <div className="detail-meta">Grade {delegate.grade} · Class {delegate.classGroup}</div>
-        <div className="detail-badge">◆ Founding Delegate #{delegate.delegateNumber}</div>
-        {delegate.bio && <div className="detail-bio">"{delegate.bio}"</div>}
-        {isAdmin && (
-          <div className="admin-panel">
-            <div className="admin-panel-label">Administrator Controls</div>
-            <div className="admin-panel-actions">
-              <button className="admin-act" onClick={() => onAdminEdit(delegate)}>Edit Photo &amp; Quote</button>
-              <button className="admin-act danger" onClick={() => onDelete(delegate.id, delegate.fullName)}>Remove Delegate</button>
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
 /* ─── Main App ─── */
-export default function App() {
+function Site() {
+  const t = useT();
   const [members, setMembers] = useState<Member[]>(getMembers());
   const [modalOpen, setModalOpen] = useState(false);
   const [certificate, setCertificate] = useState<Member | null>(null);
-  const [sealedShown, setSealedShown] = useState(false);
   const [adminEmail, setAdminEmail] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [introComplete, setIntroComplete] = useState(false);
@@ -1817,40 +1605,26 @@ export default function App() {
 
   const [loggedInUser, setLoggedInUser] = useState<Member | null>(null);
   const [profileModalOpen, setProfileModalOpen] = useState(false);
-  const [selectedFounder, setSelectedFounder] = useState<(Member & { displayTitle: string }) | null>(null);
+  const [selectedMember, setSelectedMember] = useState<EnrichedMember | null>(null);
   const [googleUser, setGoogleUser] = useState<GoogleUser | null>(getCachedGoogleUser());
   const [adminEditMember, setAdminEditMember] = useState<Member | null>(null);
-
-  /* Founding Delegates (unlimited tier) */
-  const [delegates, setDelegates] = useState<Delegate[]>(getDelegates());
-  const [loggedInDelegate, setLoggedInDelegate] = useState<Delegate | null>(null);
-  const [delegateModalOpen, setDelegateModalOpen] = useState(false);
-  const [delegateProfileOpen, setDelegateProfileOpen] = useState(false);
-  const [selectedDelegate, setSelectedDelegate] = useState<Delegate | null>(null);
-  const [adminEditDelegate, setAdminEditDelegate] = useState<Delegate | null>(null);
+  const [officeFor, setOfficeFor] = useState<EnrichedMember | null>(null);
 
   const isAdmin = isAdminEmail(adminEmail);
   const count = members.length;
-  const urgent = count >= 13 && count < MAX;
-  const full = count >= MAX;
-  const loggedInPerson = loggedInUser || loggedInDelegate;
 
-  let regularCount = 0;
-  const enrichedMembers = members.map(m => {
-    if (m.isMainFounder) return { ...m, displayTitle: 'Main Founder' };
-    regularCount++;
-    return { ...m, displayTitle: `Founding Member #${regularCount}` };
-  });
+  /* Council numbers follow arrival order; the chair is titled, not numbered. */
+  const enrichedMembers: EnrichedMember[] = members.map(m => ({
+    ...m,
+    displayTitle: m.isMainFounder ? t('council.head') : t('council.seat', { n: m.memberNumber }),
+  }));
 
-  // The headline has to agree with the register: once the charter is sealed,
-  // "filling" is a lie the page keeps telling.
-  const headline = full ? 'The Founding Seats Are Taken.' : 'The Founding Seats Are Filling.';
   const onLoadDone = useCallback(() => setLoaded(true), []);
   const onIntroComplete = useCallback(() => setIntroComplete(true), []);
 
   useSmoothScroll();
   useScrollFX();
-  useHeroParallax(introComplete); // mouse parallax only after the intro fully settles
+  useHeroParallax(introComplete);
 
   useEffect(() => {
     const unsubscribe = subscribeToMembers((newMembers) => {
@@ -1860,72 +1634,49 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  useEffect(() => {
-    const unsubscribe = subscribeToDelegates((newDelegates) => {
-      setDelegates([...newDelegates]);
-      setLoggedInDelegate(prev => prev ? newDelegates.find(d => d.email === prev.email) || null : null);
-    });
-    return () => unsubscribe();
-  }, []);
+  /* Anyone who signed up under the old Founding Delegates tier is folded into
+     the council rather than dropped. Idempotent, and a no-op once run. */
+  useEffect(() => { migrateDelegatesIntoCouncil().catch(() => {}); }, []);
 
   const refresh = useCallback(() => {}, []);
-
   const [authMode, setAuthMode] = useState<null | 'login' | 'claim' | 'admin'>(null);
 
-  /* Apply a freshly signed-in user, then route based on what they were doing. */
   const proceedWithUser = (user: GoogleUser, mode: 'login' | 'claim' | 'admin') => {
     setGoogleUser(user);
     if (isAdminEmail(user.email)) setAdminEmail(user.email);
     const member = isMemberByEmail(user.email);
-    const delegate = isDelegateByEmail(user.email);
     if (member) setLoggedInUser(member);
-    if (delegate) setLoggedInDelegate(delegate);
     setAuthMode(null);
     if (mode === 'login') {
       if (member) setProfileModalOpen(true);
-      else if (delegate) setDelegateProfileOpen(true);
-      else if (!isAdminEmail(user.email)) alert("You haven't joined yet. Claim a Founding Seat or become a Founding Delegate first.");
+      else if (!isAdminEmail(user.email)) setModalOpen(true);   // not seated yet: offer a seat
     } else if (mode === 'claim') {
       setModalOpen(true);
-    } else if (mode === 'admin') {
-      if (!isAdminEmail(user.email)) alert('Access denied. You are not the administrator.');
     }
   };
 
-  /* Single entry point. Reuses an existing session; otherwise opens the sign-in modal. */
   const startAuth = (mode: 'login' | 'claim' | 'admin') => {
     if (mode === 'login' && loggedInUser) { setProfileModalOpen(true); return; }
-    if (mode === 'login' && loggedInDelegate) { setDelegateProfileOpen(true); return; }
     const existing = googleUser || getCachedGoogleUser();
     if (existing) { proceedWithUser(existing, mode); return; }
     setAuthMode(mode);
   };
 
   const handleDeleteMember = async (id: string, name: string) => {
-    if (confirm(`Remove ${name} from the Founding Members? This cannot be undone.`)) {
-      await removeMember(id);
-      // If a delegate is waiting, the longest-waiting one fills the freed seat so
-      // the council stays at 15. If none are waiting, the seat opens for new founders.
-      await promoteEarliestDelegate();
-    }
-  };
-
-  const handleDeleteDelegate = async (id: string, name: string) => {
-    if (confirm(`Remove ${name} from the Founding Delegates? This cannot be undone.`)) await removeDelegate(id);
+    if (confirm(`Remove ${name} from the council?`)) await removeMember(id);
   };
 
   const handleSuccess = (m: Member) => {
     setModalOpen(false);
     setCertificate(m);
     setLoggedInUser(m);
-    if (members.length + 1 >= MAX && !sealedShown) setTimeout(() => setSealedShown(true), 3500);
   };
 
   return (
     <>
       <LoadingScreen onReveal={onLoadDone} onDone={onIntroComplete} />
       <div className="scroll-progress"><div className="scroll-progress-fill" /></div>
-      <Navbar onMenu={() => setMenuOpen(true)} seatsLeft={MAX - count} full={full} />
+      <Navbar onMenu={() => setMenuOpen(true)} count={count} />
       <ScrollProgressRail />
       <AudioToggle />
       <div className="grain-overlay" />
@@ -1933,45 +1684,36 @@ export default function App() {
 
       {menuOpen && <SideMenu onClose={() => setMenuOpen(false)} />}
 
-      {/* User Profile / Login Button */}
-      <button className={`user-login-btn ${loggedInPerson ? 'logged-in' : ''}`} onClick={() => startAuth('login')}>
-        {loggedInPerson ? (
+      <button className={`user-login-btn ${loggedInUser ? 'logged-in' : ''}`} onClick={() => startAuth('login')}>
+        {loggedInUser ? (
           <>
-            {loggedInPerson.avatar ? (
-              <img src={loggedInPerson.avatar} className="user-avatar-small" alt={loggedInPerson.firstName} />
-            ) : (
-              <div className="user-avatar-small" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '10px', color: 'var(--accent-veil)' }}>◆</div>
-            )}
-            Edit Profile
+            {loggedInUser.avatar
+              ? <img src={loggedInUser.avatar} className="user-avatar-small" alt="" />
+              : <span className="user-avatar-small placeholder" aria-hidden="true">
+                  {(loggedInUser.firstName || '?').charAt(0).toUpperCase()}
+                </span>}
+            {t('nav.editProfile')}
           </>
         ) : (
-          <><GoogleIcon /> Member Login</>
+          <><GoogleIcon /> {t('nav.login')}</>
         )}
       </button>
 
-      {/* Admin login, bottom-right. It stays quiet, but it is a real control:
-          a 40px target with a label and enough contrast to be findable. */}
       {!isAdmin ? (
-        <button className="admin-key" onClick={() => startAuth('admin')} aria-label="Administrator sign-in">
+        <button className="admin-key" onClick={() => startAuth('admin')} aria-label={t('admin.signIn')}>
           <span aria-hidden="true">⚙</span>
         </button>
       ) : (
         <div className="admin-flag">
-          <span aria-hidden="true">◆</span> Admin
-          <button onClick={() => setAdminEmail(null)} aria-label="Sign out of administrator mode">✕</button>
+          <span aria-hidden="true">◆</span> {t('admin.flag')}
+          <button onClick={() => setAdminEmail(null)} aria-label={t('admin.signOut')}>✕</button>
         </div>
       )}
 
-      {/* ① Hero */}
+      {/* ① The chamber */}
       <section className="hero" id="hero">
-        {/* The camera. Three planes at three depths under one focal
-            length: the photograph furthest back, the emblem at mid
-            depth, the light field nearest the lens. Mouse-look drives
-            the outer plates, the scroll dolly drives the inner ones. */}
         <div className="hero-lens" aria-hidden="true">
-          <div className="hero-plate">
-            <div className="hero-bg" />
-          </div>
+          <div className="hero-plate"><div className="hero-bg" /></div>
           <div className="hero-orb hero-orb-1" />
           <div className="hero-orb hero-orb-2" />
           <div className="hero-haze" />
@@ -1981,129 +1723,50 @@ export default function App() {
 
         <div className="hero-content">
           <div className="hero-copy">
-          <div className="hero-eyebrow" style={{ opacity: loaded ? 1 : 0, transition: 'opacity 0.6s ease 0.12s' }}>
-            Youhua School · Model United Nations
-          </div>
-          <div className="gold-rule" style={{ opacity: loaded ? 1 : 0, transition: 'opacity 0.6s ease 0.20s' }} />
-          <WordRevealTitle text={headline} loaded={loaded} />
-          <p className="hero-sub" style={{ opacity: loaded ? 1 : 0, transition: 'opacity 0.8s ease 0.65s' }}>
-            {urgent
-              ? `Almost gone. ${MAX - count} seat${MAX - count !== 1 ? 's' : ''} left before the charter is sealed.`
-              : 'Fifteen seats, filled once. There is no second founding year.'}
-          </p>
+            <div className="hero-eyebrow" style={{ opacity: loaded ? 1 : 0, transition: 'opacity 0.6s ease 0.12s' }}>
+              {t('hero.eyebrow')}
+            </div>
+            <div className="gold-rule" style={{ opacity: loaded ? 1 : 0, transition: 'opacity 0.6s ease 0.20s' }} />
+            <WordRevealTitle text={t('hero.title')} loaded={loaded} />
+            <p className="hero-sub" style={{ opacity: loaded ? 1 : 0, transition: 'opacity 0.8s ease 0.65s' }}>
+              {t('hero.sub')}
+            </p>
 
-          {loggedInUser ? (
-            <div
-              style={{
-                opacity: loaded ? 1 : 0,
-                transform: loaded ? 'translateY(0)' : 'translateY(20px)',
-                transition: 'opacity 0.8s ease 0.85s, transform 0.8s cubic-bezier(0.16, 1, 0.3, 1) 0.85s'
-              }}
-            >
-              <MagneticCta onClick={() => scrollToId('hall')}>
-                Take Your Seat in the Council →
-              </MagneticCta>
-              <p className="cta-sub" style={{
-                opacity: loaded ? 1 : 0,
-                transform: loaded ? 'translateY(0)' : 'translateY(10px)',
-                transition: 'opacity 0.8s ease 0.95s, transform 0.8s cubic-bezier(0.16, 1, 0.3, 1) 0.95s'
-              }}>
-                Welcome back, {loggedInUser.firstName}. You are Founding Member #{loggedInUser.memberNumber}.
-              </p>
+            <div style={{
+              opacity: loaded ? 1 : 0,
+              transform: loaded ? 'translateY(0)' : 'translateY(20px)',
+              transition: 'opacity 0.8s ease 0.85s, transform 0.8s cubic-bezier(0.16, 1, 0.3, 1) 0.85s',
+            }}>
+              {loggedInUser ? (
+                <>
+                  <MagneticCta onClick={() => scrollToId('council')}>{t('hero.ctaSeated')}</MagneticCta>
+                  <p className="cta-sub">
+                    {t('hero.welcome', { name: loggedInUser.firstName, n: loggedInUser.memberNumber })}
+                  </p>
+                </>
+              ) : (
+                <>
+                  <MagneticCta onClick={() => startAuth('claim')}>{t('hero.cta')}</MagneticCta>
+                  <p className="cta-sub">{t('hero.ctaSub')}</p>
+                </>
+              )}
             </div>
-          ) : loggedInDelegate ? (
-            <div
-              style={{
-                opacity: loaded ? 1 : 0,
-                transform: loaded ? 'translateY(0)' : 'translateY(20px)',
-                transition: 'opacity 0.8s ease 0.85s, transform 0.8s cubic-bezier(0.16, 1, 0.3, 1) 0.85s'
-              }}
-            >
-              <MagneticCta onClick={() => scrollToId('delegation')}>See the Delegation →</MagneticCta>
-              <p className="cta-sub" style={{
-                opacity: loaded ? 1 : 0,
-                transform: loaded ? 'translateY(0)' : 'translateY(10px)',
-                transition: 'opacity 0.8s ease 0.95s, transform 0.8s cubic-bezier(0.16, 1, 0.3, 1) 0.95s'
-              }}>
-                Welcome back, {loggedInDelegate.firstName}. You are Founding Delegate #{loggedInDelegate.delegateNumber}.
-              </p>
-            </div>
-          ) : (!full && delegates.length === 0) ? (
-            <div
-              style={{
-                opacity: loaded ? 1 : 0,
-                transform: loaded ? 'translateY(0)' : 'translateY(20px)',
-                transition: 'opacity 0.8s ease 0.85s, transform 0.8s cubic-bezier(0.16, 1, 0.3, 1) 0.85s'
-              }}
-            >
-              <MagneticCta onClick={() => startAuth('claim')}>Claim My Founding Seat →</MagneticCta>
-              <p className="cta-sub" style={{
-                opacity: loaded ? 1 : 0,
-                transform: loaded ? 'translateY(0)' : 'translateY(10px)',
-                transition: 'opacity 0.8s ease 0.95s, transform 0.8s cubic-bezier(0.16, 1, 0.3, 1) 0.95s'
-              }}>Takes 60 seconds. Lasts on your college application forever.</p>
-            </div>
-          ) : (
-            <div
-              style={{
-                opacity: loaded ? 1 : 0,
-                transform: loaded ? 'translateY(0)' : 'translateY(20px)',
-                transition: 'opacity 0.8s ease 0.85s, transform 0.8s cubic-bezier(0.16, 1, 0.3, 1) 0.85s'
-              }}
-            >
-              {full && <p className="hero-sealed-note">All fifteen founding seats are sealed.</p>}
-              <MagneticCta onClick={() => setDelegateModalOpen(true)}>Become a Founding Delegate →</MagneticCta>
-              <p className="cta-sub" style={{
-                opacity: loaded ? 1 : 0,
-                transform: loaded ? 'translateY(0)' : 'translateY(10px)',
-                transition: 'opacity 0.8s ease 0.95s, transform 0.8s cubic-bezier(0.16, 1, 0.3, 1) 0.95s'
-              }}>Unlimited places. Your name still stands on the founding record.</p>
-            </div>
-          )}
           </div>
 
-          {/* The medallion. The emblem used to sit behind the headline as a
-              backdrop, where the laurel tangled with the type and the ring
-              landed on the globe. Here it is a composed object in its own
-              column: the progress arc is the collar the emblem sits inside,
-              and the tally is set beneath it rather than on top of it. */}
           <div className="hero-medallion">
             <div className="hero-emblem">
               <div className="emblem-dolly">
                 <span className="emblem-halo" />
                 <img src="/un-emblem.svg" alt="" className={`emblem-img ${loaded ? 'alive' : ''}`} />
                 <span className="intro-scan" />
-                {full ? (
-                  <>
-                    <ProgressRing count={count} />
-                    <DelegateRing count={delegates.length} />
-                  </>
-                ) : (
-                  <ProgressRing count={count} />
-                )}
+                <CouncilCollar />
               </div>
             </div>
-
             <div className="hero-tally" style={{ opacity: loaded ? 1 : 0, transition: 'opacity 0.8s ease 0.75s' }}>
-              {full ? (
-                <>
-                  <p className="tally-line">
-                    <span className="tally-num">{MAX}</span>
-                    <span className="tally-unit">of {MAX} founding seats</span>
-                    <span className="tally-state">Council sealed</span>
-                  </p>
-                  <p className="tally-line">
-                    <span className="tally-num">{delegates.length}</span>
-                    <span className="tally-unit">founding delegates</span>
-                    <span className="tally-state open"><span className="cap-dot" />Still open</span>
-                  </p>
-                </>
-              ) : (
-                <p className="tally-line">
-                  <span className="tally-num">{count}</span>
-                  <span className="tally-unit">of {MAX} founding seats claimed</span>
-                </p>
-              )}
+              <p className="tally-line">
+                <span className="tally-num">{count}</span>
+                <span className="tally-unit">{count === 1 ? t('hero.tallyOne') : t('hero.tally')}</span>
+              </p>
             </div>
           </div>
         </div>
@@ -2111,53 +1774,45 @@ export default function App() {
         <div className="hero-spacer" style={{ minHeight: '1.5rem' }} />
 
         <div className="scroll-indicator" aria-hidden="true">
-          <span className="scroll-indicator-text">Scroll</span>
+          <span className="scroll-indicator-text">{t('nav.scroll')}</span>
           <span className="scroll-indicator-line" />
         </div>
       </section>
 
-      {/* ② Value Proposition */}
-      <ValueSection />
+      {/* ② What MUN and the UN are */}
+      <MunSection />
 
-      {/* ③ Hall of Founders */}
-      <HallOfFounders
+      {/* ③ The council */}
+      <CouncilSection
         members={enrichedMembers}
-        onSeatClick={(m) => setSelectedFounder(m)}
+        onSeatClick={(m) => setSelectedMember(m)}
         isAdmin={isAdmin}
+        onAssignOffice={(m) => setOfficeFor(m)}
       />
 
-      {/* ③½ Founding Delegates */}
-      <DelegationSection
-        delegates={delegates}
-        loggedInDelegate={loggedInDelegate}
-        isFounder={!!loggedInUser}
-        onJoin={() => setDelegateModalOpen(true)}
-        onEditProfile={() => setDelegateProfileOpen(true)}
-        onSelect={(d) => setSelectedDelegate(d)}
-      />
-
-      {/* ④ About MUN */}
-      <AboutSection />
+      {/* ④ The secretariat */}
+      <SecretariatSection members={enrichedMembers} onSelect={(m) => setSelectedMember(m)} />
 
       {/* ⑤ Footer */}
       <footer className="site-footer">
         <div className="site-footer-inner">
           <div className="footer-left">
-            <div className="footer-name">{SCHOOL} Model United Nations</div>
-            <div className="footer-est">Est. 2026</div>
-            <div className="footer-tagline">"Shaped by 15. Built for the world."</div>
+            <div className="footer-name">{t('foot.name')}</div>
+            <div className="footer-est">{t('foot.est')}</div>
+            <div className="footer-tagline">{t('foot.tagline')}</div>
           </div>
           <div className="footer-right">
-            <div className="footer-contact-label">Contact</div>
+            <div className="footer-contact-label">{t('foot.contact')}</div>
             <a href="https://www.instagram.com/lucasruslim/" target="_blank" rel="noopener noreferrer" className="footer-contact-link">@lucasruslim</a>
             <div className="footer-meta">Instagram</div>
           </div>
         </div>
         <div className="footer-bottom">
-          © 2026 Youhua School Model United Nations. The founding register is kept on this page.
+          {t('foot.rights')}
           <br />
-          <span style={{ opacity: 0.7 }}>
-            Hero image: UN General Assembly Hall by Patrick Gruban, <a href="https://creativecommons.org/licenses/by-sa/2.0/" target="_blank" rel="noopener noreferrer" style={{ color: 'inherit', textDecoration: 'underline' }}>CC BY-SA 2.0</a>.
+          <span style={{ opacity: 0.75 }}>
+            {t('foot.credit')}{' '}
+            <a href="https://creativecommons.org/licenses/by-sa/2.0/" target="_blank" rel="noopener noreferrer">CC BY-SA 2.0</a>.
           </span>
         </div>
       </footer>
@@ -2165,67 +1820,72 @@ export default function App() {
       <Ticker members={members} />
 
       {authMode && <AuthModal mode={authMode} onClose={() => setAuthMode(null)} onUser={(u) => proceedWithUser(u, authMode)} />}
-      {modalOpen && <RegistrationModal onClose={() => setModalOpen(false)} onSuccess={handleSuccess} count={count} preAuth={googleUser} />}
+      {modalOpen && <RegistrationModal onClose={() => setModalOpen(false)} onSuccess={handleSuccess} preAuth={googleUser} />}
       {profileModalOpen && loggedInUser && <ProfileEditorModal member={loggedInUser} onClose={() => setProfileModalOpen(false)} onUpdate={refresh} />}
       {adminEditMember && <ProfileEditorModal member={adminEditMember} onClose={() => setAdminEditMember(null)} onUpdate={refresh} />}
-      {selectedFounder && (
+
+      {selectedMember && (
         <FounderDetailModal
-          member={selectedFounder}
-          displayTitle={selectedFounder.displayTitle}
-          onClose={() => setSelectedFounder(null)}
+          member={selectedMember}
+          displayTitle={selectedMember.displayTitle}
+          onClose={() => setSelectedMember(null)}
           isAdmin={isAdmin}
-          onAdminEdit={(m) => { setSelectedFounder(null); setAdminEditMember(m); }}
-          onToggleMain={async (id, isMain) => {
-            await toggleMainFounder(id, isMain);
-            setSelectedFounder(null);
-          }}
-          onDelete={async (id, name) => { await handleDeleteMember(id, name); setSelectedFounder(null); }}
+          onAdminEdit={(m) => { setSelectedMember(null); setAdminEditMember(m); }}
+          onToggleMain={async (id, isMain) => { await toggleMainFounder(id, isMain); setSelectedMember(null); }}
+          onDelete={async (id, name) => { await handleDeleteMember(id, name); setSelectedMember(null); }}
         />
       )}
+
+      {officeFor && (
+        <OfficePicker
+          member={officeFor}
+          onClose={() => setOfficeFor(null)}
+          onSave={async (roles) => { await setMemberRoles(officeFor.id, roles); setOfficeFor(null); }}
+        />
+      )}
+
       {certificate && <Certificate member={certificate} onClose={() => setCertificate(null)} />}
-
-      {delegateModalOpen && (
-        <DelegateModal
-          onClose={() => setDelegateModalOpen(false)}
-          onSuccess={(d) => setLoggedInDelegate(d)}
-          preAuth={googleUser}
-        />
-      )}
-      {delegateProfileOpen && loggedInDelegate && (
-        <ProfileEditorModal
-          member={loggedInDelegate as unknown as Member}
-          numberLabel={`Founding Delegate #${loggedInDelegate.delegateNumber}`}
-          saveFn={updateDelegate}
-          onClose={() => setDelegateProfileOpen(false)}
-          onUpdate={refresh}
-        />
-      )}
-      {adminEditDelegate && (
-        <ProfileEditorModal
-          member={adminEditDelegate as unknown as Member}
-          numberLabel={`Founding Delegate #${adminEditDelegate.delegateNumber}`}
-          saveFn={updateDelegate}
-          onClose={() => setAdminEditDelegate(null)}
-          onUpdate={refresh}
-        />
-      )}
-      {selectedDelegate && (
-        <DelegateDetailModal
-          delegate={selectedDelegate}
-          onClose={() => setSelectedDelegate(null)}
-          isAdmin={isAdmin}
-          onAdminEdit={(d) => { setSelectedDelegate(null); setAdminEditDelegate(d); }}
-          onDelete={async (id, name) => { await handleDeleteDelegate(id, name); setSelectedDelegate(null); }}
-        />
-      )}
-
-      {sealedShown && full && (
-        <div className="sealed-overlay" onClick={() => setSealedShown(false)}>
-          <div className="sealed-stamp">◆</div>
-          <h2 className="sealed-title">The Chamber Is Sealed.</h2>
-          <p className="sealed-sub">Founding Members have been chosen. The charter is complete.</p>
-        </div>
-      )}
     </>
+  );
+}
+
+/* ─── Assign offices (admin) ─── */
+function OfficePicker({ member, onClose, onSave }: {
+  member: EnrichedMember;
+  onClose: () => void;
+  onSave: (roles: string[]) => void;
+}) {
+  const t = useT();
+  const [picked, setPicked] = useState<string[]>(rolesOf(member));
+  const toggle = (id: string) =>
+    setPicked(p => (p.includes(id) ? p.filter(x => x !== id) : [...p, id]));
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" onClick={e => e.stopPropagation()}>
+        <button className="modal-close" onClick={onClose} aria-label={t('nav.close')}>×</button>
+        <h2 className="modal-title">{member.fullName}</h2>
+        <p className="modal-subtitle">{t('council.hintOffice')}</p>
+        <div className="office-picker">
+          {ROLES.map(r => (
+            <button key={r.id}
+              className={`office-chip ${picked.includes(r.id) ? 'on' : ''}`}
+              style={{ ['--office' as any]: r.hue }}
+              onClick={() => toggle(r.id)}>
+              <span aria-hidden="true">{r.glyph}</span>
+              {t(`role.${r.id}.en` as any)}
+            </button>
+          ))}
+        </div>
+        <button className="submit-btn" onClick={() => onSave(picked)}>{t('profile.save')}</button>
+      </div>
+    </div>
+  );
+}
+
+export default function App() {
+  return (
+    <LangProvider>
+      <Site />
+    </LangProvider>
   );
 }

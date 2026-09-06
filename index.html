@@ -13,6 +13,17 @@
     <!-- Display: Bodoni Moda, a burin-cut Didone that reads as engraved brass.
          Text: Archivo, the institutional grotesque of printed forms and signage. -->
     <link href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:ital,opsz,wght@0,6..96,400..900;1,6..96,400..700&family=Archivo:wght@400..800&display=swap" rel="stylesheet">
+    <!-- Traditional Chinese. Bodoni and Archivo carry no CJK glyphs, so the
+         Chinese setting needs its own pair: Noto Serif TC answers the Didone
+         display, Noto Sans TC the grotesque text. Loaded lazily, because an
+         English reader should never pay for a CJK font they will not see. -->
+    <link rel="preload" as="style"
+      href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400..700&family=Noto+Serif+TC:wght@400..700&display=swap"
+      onload="this.onload=null;this.rel='stylesheet'">
+    <noscript>
+      <link rel="stylesheet"
+        href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400..700&family=Noto+Serif+TC:wght@400..700&display=swap">
+    </noscript>
     <script src="https://accounts.google.com/gsi/client" async defer></script>
   </head>
   <body class="intro-active">

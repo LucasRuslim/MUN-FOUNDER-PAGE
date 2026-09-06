@@ -1,11 +1,22 @@
 # Youhua MUN — Design System
 
-**Reference:** *the engraved treaty plate.* A brass nameplate bolted to a General
+**Reference:** *the engraved treaty plate*, seated in *the Security Council chamber*. A brass nameplate bolted to a General
 Assembly desk, and the printed roll-call sheet lying beside it. Everything on this
 site is either the plate (cut, high-contrast, ceremonial) or the sheet
 (institutional, plain, legible at small sizes). Nothing is both.
 
 ---
+
+## 0. The room
+
+The council chamber is not invented. It is Arnstein Arneberg's Security Council
+chamber (Norway's gift to the UN, 1952): a horseshoe table so everyone seated
+can look everyone else in the eye, blue walls carrying Else Poulsson's damask
+of corn, hearts and anchors for hope, charity and faith, and Per Krohg's mural
+of a phoenix rising out of war behind it. The damask is drawn as a real
+repeating motif in `ChamberRoom`, and the phoenix as the warm gradient rising
+from the foot of the wall. Anything added to that room should be checked
+against the real one first.
 
 ## 1. Visual Theme
 
@@ -90,6 +101,9 @@ number in the register.
   navbar, because it sits over a moving photograph.
 - **Seats.** A seat is a button standing upright on a rotated floor plane, wrapped
   in `.seat-upright` which counter-rotates the stage's tilt.
+- **Office plates.** One nameplate per office, the office's colour appearing only
+  as a hairline on the plate's head. The chair's plate spans the full width,
+  because six identical tiles would flatten a hierarchy that is real.
 
 ## 5. Layout Principles
 
@@ -102,6 +116,11 @@ Grid for 2D structures, flexbox for 1D. The value grid is asymmetric on purpose
 (`1.15fr 1fr` with the lead plate spanning both rows) so it never reads as three equals.
 
 ## 6. Depth System
+
+The council is open: no cap, no sealed state, no waiting tier. Seats are placed
+by arc length along the horseshoe in aspect-corrected space (`seatPositions`),
+so N members are evenly spaced for any N and the whole table redistributes
+whenever someone joins or leaves.
 
 There is no shadow scale. Elevation is Z position under `--lens: 1400px`:
 
@@ -134,6 +153,11 @@ This system forbids:
 - Any spacing value that is not a 4pt multiple
 - Body prose below 16px
 - Gating content visibility on a transition
+- Animating `filter` on scroll. Filters cannot be composited, so an animated
+  blur re-renders its plane every frame; this cost the page 8fps once already.
+  Depth travels on transform and opacity, which the compositor can drive.
+- Interpolating a live custom property inside a paint property (a gradient
+  colour stop, a filter). Drive opacity instead.
 
 ## 8. Responsive Strategy
 
@@ -151,6 +175,14 @@ Mobile first in behaviour, verified at 320 / 375 / 414 / 1440.
 - `≤1100px`: the scroll rail is hidden.
 
 Touch targets are ≥40×40 everywhere, verified in-browser.
+
+## 8b. Language
+
+English and Traditional Chinese, switched by one toggle and remembered. Every
+string lives in `src/i18n.tsx`; member-entered content is never translated.
+Chinese is written rather than converted, and gets its own faces (Noto Serif TC
+for display, Noto Sans TC for text), looser leading, much tighter tracking, no
+uppercasing and no synthesised italic — all of which damage Han.
 
 ## 9. Agent Prompt Guide
 

@@ -1159,9 +1159,9 @@ body.intro-active .intro-scan {
 .hall-chamber {
   position: relative;
   width: 100%;
-  max-width: 800px;
+  max-width: 880px;
   margin: 0 auto;
-  aspect-ratio: 5 / 4;
+  aspect-ratio: 3 / 2;
   perspective: 1200px;
   perspective-origin: 50% 34%;
 }
@@ -1170,39 +1170,96 @@ body.intro-active .intro-scan {
   inset: 0;
   transform-style: preserve-3d;
   transform: rotateX(var(--tilt));
+  z-index: 2;
 }
+
+/* ── The room ──
+   Reference: the Security Council chamber, Arnstein Arneberg, 1952. Blue
+   walls carrying Else Poulsson's damask of corn, hearts and anchors — hope,
+   charity, faith — with Per Krohg's phoenix rising behind the table. Drawn as
+   an actual motif, because a soft glow behind a horseshoe is what every
+   generic "council" illustration already is. */
+.chamber-room {
+  position: absolute;
+  inset: -2% -4% 4%;
+  z-index: 0;
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  -webkit-mask: radial-gradient(ellipse at 50% 42%, #000 40%, transparent 82%);
+  mask: radial-gradient(ellipse at 50% 42%, #000 40%, transparent 82%);
+}
+.chamber-wall { width: 100%; height: 100%; display: block; }
+.wall-ground { fill: oklch(22% 0.070 262); }
+/* Poulsson's motif: gold line on blue, kept at hairline weight so it reads as
+   woven damask rather than wallpaper shouting over the seats. */
+.damask {
+  fill: none;
+  stroke: oklch(80% 0.115 88);
+  stroke-width: 1.1;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: 0.20;
+}
+.ph-hot { stop-color: oklch(62% 0.150 62); stop-opacity: 0.34; }
+.ph-mid { stop-color: oklch(44% 0.120 30); stop-opacity: 0.16; }
+.ph-out { stop-color: oklch(20% 0.060 262); stop-opacity: 0.72; }
+
+/* The brass rail that runs the front of the chamber's gallery. */
+.chamber-rail {
+  position: absolute;
+  left: 6%; right: 6%; bottom: 11%;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, oklch(80% 0.115 88 / 0.5), transparent);
+}
+
+/* ── The table ──
+   Arneberg's horseshoe, seen in perspective as a solid surface people sit
+   around, with a brass edge and the club's mark inlaid at the bend. */
 .chamber-floor {
   position: absolute;
-  left: 21%; right: 21%; top: 25%; bottom: 13%;
-  border: 1px solid var(--rim-strong);
-  border-top: none;
-  border-radius: 0 0 160px 160px;
-  background: linear-gradient(180deg, var(--wash), oklch(30% 0.090 262 / 0.34));
-  transition: border-color var(--dur-slow) ease, background var(--dur-slow) ease;
+  left: 19%; right: 19%; top: 22%; bottom: 12%;
+  border-radius: 0 0 150px 150px;
+  background:
+    linear-gradient(180deg,
+      oklch(38% 0.078 262) 0%,
+      oklch(31% 0.068 262) 44%,
+      oklch(24% 0.055 262) 100%);
+  box-shadow:
+    inset 0 1px 0 oklch(84% 0.120 88 / 0.55),
+    inset 0 0 0 1px oklch(80% 0.115 88 / 0.20),
+    0 24px 60px oklch(12% 0.022 262 / 0.6);
 }
+/* The well inside the horseshoe, where the secretariat sits in the real room. */
+.chamber-floor::after {
+  content: '';
+  position: absolute;
+  left: 15%; right: 15%; top: 0; bottom: 30%;
+  border-radius: 0 0 104px 104px;
+  background: oklch(18% 0.042 262);
+  box-shadow:
+    inset 0 -1px 0 oklch(84% 0.120 88 / 0.30),
+    inset 0 1px 0 oklch(12% 0.022 262 / 0.9);
+}
+
+/* The dais at the head, where the chair sits. */
 .chamber-dais {
   position: absolute;
-  left: 35%; right: 35%; top: 6%; bottom: 80%;
-  border: 1px solid var(--rim);
-  border-bottom: none;
-  border-radius: 120px 120px 0 0;
-  background: linear-gradient(0deg, var(--wash), oklch(30% 0.090 262 / 0.3));
-  transition: border-color var(--dur-slow) ease;
+  left: 34%; right: 34%; top: 4%; bottom: 78%;
+  border-radius: 110px 110px 0 0;
+  background: linear-gradient(0deg, oklch(34% 0.072 262), oklch(25% 0.058 262));
+  box-shadow:
+    inset 0 -1px 0 oklch(84% 0.120 88 / 0.45),
+    inset 0 0 0 1px oklch(80% 0.115 88 / 0.16);
 }
-.hall-chamber.complete .chamber-dais { border-color: var(--accent); }
-.hall-chamber.complete .chamber-floor {
-  border-color: var(--accent);
-  background: linear-gradient(180deg, var(--wash-lift), oklch(30% 0.090 262 / 0.3));
-}
-/* Inlaid in the floor: it lies flat on the plane rather than facing you. */
+
 .chamber-emblem {
   position: absolute;
-  left: 50%; top: 56%;
+  left: 50%; top: 58%;
   transform: translate(-50%, -50%);
   text-align: center;
-  color: var(--accent-lift);
-  opacity: 0.4;
-  font-size: 1.25rem;
+  color: oklch(80% 0.115 88);
+  opacity: 0.5;
+  font-size: 1.125rem;
   pointer-events: none;
 }
 .chamber-emblem span {
@@ -2107,4 +2164,238 @@ body.intro-active .intro-scan {
    chapter labels. */
 @media (min-width: 1101px) {
   .hero, .section, .hall, .delegation, .site-footer { padding-left: 232px; }
+}
+
+/* ═══════════════════════════════════════════
+   TRADITIONAL CHINESE
+
+   Bodoni and Archivo have no CJK glyphs, so Chinese gets its own pair rather
+   than falling back to whatever the OS happens to supply. Han characters also
+   need different metrics from Latin: they carry no ascenders or descenders,
+   so they read tight at Latin leading, and letter-spacing meant to open up
+   Latin caps just pushes them apart.
+═══════════════════════════════════════════ */
+:root[data-lang="zh"] {
+  --font-display: 'Noto Serif TC', 'Bodoni Moda', serif;
+  --font-text: 'Noto Sans TC', 'Archivo', ui-sans-serif, system-ui, sans-serif;
+}
+:root[data-lang="zh"] body { line-height: 1.85; letter-spacing: 0.02em; }
+:root[data-lang="zh"] h1,
+:root[data-lang="zh"] h2,
+:root[data-lang="zh"] h3 { line-height: 1.35; letter-spacing: 0.01em; }
+/* Tracking tuned for Latin small-caps labels turns Han into loose confetti. */
+:root[data-lang="zh"] .hero-eyebrow,
+:root[data-lang="zh"] .rail-label,
+:root[data-lang="zh"] .tally-unit,
+:root[data-lang="zh"] .nav-status-text,
+:root[data-lang="zh"] .nav-menu-btn,
+:root[data-lang="zh"] .cta-btn,
+:root[data-lang="zh"] .submit-btn,
+:root[data-lang="zh"] .form-label,
+:root[data-lang="zh"] .footer-est,
+:root[data-lang="zh"] .footer-contact-label,
+:root[data-lang="zh"] .office-holders-label,
+:root[data-lang="zh"] .cert-ornament,
+:root[data-lang="zh"] .scroll-indicator-text { letter-spacing: 0.08em; text-indent: 0; }
+/* Han has no lowercase, so uppercasing is a no-op that only widens tracking. */
+:root[data-lang="zh"] .cta-btn,
+:root[data-lang="zh"] .submit-btn { text-transform: none; font-size: var(--text-base); }
+/* The display serif is doing italic duty for emphasis; synthesised oblique on
+   Han is a well-known way to make Chinese look broken, so it is switched off. */
+:root[data-lang="zh"] .gold-accent,
+:root[data-lang="zh"] .hall-subtitle,
+:root[data-lang="zh"] .pull-quote,
+:root[data-lang="zh"] .footer-tagline { font-style: normal; }
+
+.lang-toggle {
+  min-height: 40px;
+  padding: var(--space-2xs) var(--space-sm);
+  background: transparent;
+  border: 1px solid var(--rim);
+  border-radius: var(--radius);
+  color: var(--text-body);
+  font-family: var(--font-text);
+  font-size: var(--text-label);
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  cursor: pointer;
+  transition: border-color var(--dur-fast) ease, color var(--dur-fast) ease;
+}
+.lang-toggle:hover { border-color: var(--accent); color: var(--accent-lift); }
+
+/* ═══════════════════════════════════════════
+   THE SECRETARIAT — office plates
+
+   Each office is a nameplate, not a feature card: a struck glyph, the office
+   in both languages, its duty, and who currently holds it. The office's own
+   colour appears only as a hairline on the plate's head, so six plates read
+   as one set rather than six competing swatches.
+═══════════════════════════════════════════ */
+.explainer { max-width: var(--measure); margin-bottom: var(--space-3xl); }
+.explainer-un { margin-top: var(--space-4xl); margin-bottom: 0; }
+
+.office-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: var(--space-lg);
+}
+/* The chair outranks the directorates, so its plate runs the full width
+   rather than sitting as one of six identical tiles. */
+.office.is-chair {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  align-items: start;
+  gap: var(--space-lg) var(--space-2xl);
+}
+.office.is-chair .office-head { grid-row: 1; }
+.office.is-chair .office-zh { font-size: var(--text-h2); }
+.office.is-chair .office-duty { grid-row: 1; grid-column: 2; font-size: var(--text-lead); }
+.office.is-chair .office-holders { grid-column: 1 / -1; }
+@media (max-width: 720px) {
+  .office.is-chair { grid-template-columns: 1fr; }
+  .office.is-chair .office-duty { grid-row: auto; grid-column: 1; }
+}
+.office {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  padding: var(--space-xl);
+  background: var(--surface-raised);
+  border: 1px solid var(--rim-hair);
+  border-top: 2px solid var(--office, var(--accent));
+  border-radius: var(--radius);
+  will-change: transform, opacity;
+}
+.office-head { display: flex; align-items: flex-start; gap: var(--space-md); }
+.office-glyph {
+  font-size: 1.25rem;
+  line-height: 1.4;
+  color: var(--office, var(--accent));
+  flex-shrink: 0;
+}
+.office-zh {
+  font-family: var(--font-display);
+  font-size: var(--text-h3);
+  font-weight: 600;
+  color: var(--text-strong);
+  line-height: 1.2;
+}
+.office-en {
+  font-size: var(--text-meta);
+  letter-spacing: 0.14em;
+  color: var(--text-muted);
+  margin-top: var(--space-2xs);
+}
+.office-duty {
+  font-size: var(--text-base);
+  color: var(--text-body);
+  line-height: 1.7;
+  max-width: var(--measure);
+}
+.office-holders {
+  margin-top: auto;
+  padding-top: var(--space-md);
+  border-top: 1px solid var(--rim-hair);
+}
+.office-holders-label {
+  display: block;
+  font-size: var(--text-label);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: var(--space-xs);
+}
+.office-list { list-style: none; display: flex; flex-wrap: wrap; gap: var(--space-xs); }
+.office-person {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  min-height: 40px;
+  padding: var(--space-2xs) var(--space-sm) var(--space-2xs) var(--space-2xs);
+  background: var(--surface-inset);
+  border: 1px solid var(--rim-hair);
+  border-radius: var(--radius);
+  color: var(--text-body);
+  font-family: var(--font-text);
+  font-size: var(--text-meta);
+  cursor: pointer;
+  transition: border-color var(--dur-fast) ease, color var(--dur-fast) ease;
+}
+.office-person:hover { border-color: var(--office, var(--accent)); color: var(--text-strong); }
+.office-face {
+  width: var(--space-xl); height: var(--space-xl);
+  border-radius: 50%;
+  object-fit: cover;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--wash);
+  font-family: var(--font-display);
+  font-size: var(--text-meta);
+  color: var(--accent-veil);
+  flex-shrink: 0;
+}
+
+/* Admin: assigning offices */
+.office-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+  margin-bottom: var(--space-lg);
+}
+.office-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  min-height: 40px;
+  padding: var(--space-xs) var(--space-md);
+  background: transparent;
+  border: 1px solid var(--rim);
+  border-radius: var(--radius);
+  color: var(--text-body);
+  font-family: var(--font-text);
+  font-size: var(--text-meta);
+  cursor: pointer;
+  transition: border-color var(--dur-fast) ease, background var(--dur-fast) ease, color var(--dur-fast) ease;
+}
+.office-chip:hover { border-color: var(--office); }
+.office-chip.on {
+  border-color: var(--office);
+  background: var(--wash-lift);
+  color: var(--text-strong);
+}
+
+.form-error {
+  color: var(--signal);
+  font-size: var(--text-meta);
+  text-align: center;
+  margin-top: var(--space-md);
+}
+
+/* A quiet dot rather than a badge riding on top of the portrait. */
+.bestie-dot {
+  position: absolute;
+  top: 0; right: 20%;
+  width: var(--space-sm); height: var(--space-sm);
+  border-radius: 50%;
+  border: 2px solid var(--surface-base);
+  pointer-events: none;
+}
+
+.user-avatar-small.placeholder {
+  display: flex; align-items: center; justify-content: center;
+  background: var(--wash);
+  font-family: var(--font-display);
+  font-size: 0.625rem;
+  color: var(--accent-veil);
+}
+.seat-avatar.placeholder {
+  font-family: var(--font-display);
+  font-size: 1.125rem;
+}
+
+.detail-badge.is-chair {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--text-ink);
+  font-weight: 700;
 }
