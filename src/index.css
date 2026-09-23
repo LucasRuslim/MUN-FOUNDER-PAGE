@@ -19,9 +19,9 @@
   --vermilion:  oklch(0.53 0.19 31);    /* ink stamps only */
 
   --on-ink:        oklch(0.95 0.008 240);
-  --on-ink-muted:  oklch(0.75 0.025 250);
+  --on-ink-muted:  oklch(0.8 0.022 250);
   --on-paper:      oklch(0.2 0.03 258);
-  --on-paper-muted:oklch(0.44 0.03 256);
+  --on-paper-muted:oklch(0.4 0.03 256);
   --on-blue:       oklch(0.165 0.03 258);
   --on-blue-muted: oklch(0.24 0.045 252);
 
@@ -29,8 +29,12 @@
   --font-display: 'Bodoni Moda Variable', 'Bodoni 72', Didot, 'Times New Roman', serif;
   --font-text:    'Schibsted Grotesk Variable', ui-sans-serif, system-ui, sans-serif;
   --font-mono:    'Martian Mono Variable', ui-monospace, 'SF Mono', Menlo, monospace;
+  /* Bodoni Moda's optical sizes: its default display cut (96) has hairlines that
+     vanish on screen. 28 keeps the contrast with visible strokes; 11 is for reading. */
+  --opsz-display: 'opsz' 28;
+  --opsz-text:    'opsz' 11;
 
-  --text-meta:  0.75rem;
+  --text-meta:  0.8125rem;
   --text-small: 0.875rem;
   --text-body:  1.0625rem;
   --text-lede:  clamp(1.125rem, 1rem + 0.45vw, 1.375rem);
@@ -117,6 +121,7 @@ h1, h2, h3 { font-weight: inherit; }
 /* Display type */
 .display-1, .display-2, .hero-headline, .manifesto-text, .dialog-title, .lex-word, .wordmark {
   font-family: var(--font-display);
+  font-variation-settings: var(--opsz-display);
   font-weight: 500;
   letter-spacing: -0.02em;
   text-wrap: balance;
@@ -124,6 +129,14 @@ h1, h2, h3 { font-weight: inherit; }
 .display-1 { font-size: var(--text-display-1); line-height: 0.95; }
 .display-2 { font-size: var(--text-display-2); line-height: 1.02; }
 .display-1 em, .display-2 em, .hero-headline em { font-weight: 400; }
+.menu-link, .tally-figure, .chamber-count, .roll-count strong, .quote blockquote, .footer-tag, .sign-name {
+  font-variation-settings: var(--opsz-display);
+}
+/* Bodoni at reading sizes uses its text cut */
+.clauses, .nav-mark, .seat-name, .roll-name, .dossier-quote, .credential-fields dd, .curtain-name,
+.record-set span, .monogram, .chamber-empty, .stamp .stamp-num {
+  font-variation-settings: var(--opsz-text);
+}
 
 .lede { font-size: var(--text-lede); line-height: 1.55; color: var(--fg-muted); max-width: 46ch; text-wrap: pretty; }
 .fine { font-family: var(--font-mono); font-size: var(--text-meta); line-height: 1.6; color: var(--fg-muted); font-stretch: 90%; }
@@ -381,7 +394,7 @@ h1, h2, h3 { font-weight: inherit; }
 .doc-head { position: sticky; top: calc(var(--nav-h) + var(--space-7)); display: grid; gap: var(--space-4); }
 .doc-meta { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-4); padding-bottom: var(--space-4); border-bottom: 1px solid var(--line); font-family: var(--font-mono); font-size: var(--text-meta); font-stretch: 90%; color: var(--fg-muted); }
 .doc-sponsor { font-style: italic; color: var(--fg-muted); }
-.clauses { font-family: var(--font-display); font-size: clamp(1.25rem, 1.05rem + 0.7vw, 1.625rem); line-height: 1.5; max-width: 40ch; }
+.clauses { font-family: var(--font-display); font-size: clamp(1.1875rem, 1.05rem + 0.55vw, 1.5rem); line-height: 1.6; max-width: 42ch; }
 .clause { margin-bottom: var(--space-5); text-wrap: pretty; }
 .clause.is-pre em { font-style: italic; }
 .operative { list-style: none; counter-reset: op; margin-top: var(--space-7); }
@@ -509,8 +522,8 @@ h1, h2, h3 { font-weight: inherit; }
    THE ASSEMBLY (photo)
 ═══════════════════════════════════════════ */
 .assembly { position: relative; height: 100svh; overflow: hidden; }
-.assembly-frame { position: absolute; inset: 0; overflow: hidden; }
-.assembly-img { width: 100%; height: 100%; object-fit: cover; object-position: center 40%; }
+.assembly-frame { position: absolute; inset: 0; overflow: hidden; transform-origin: 50% 50%; will-change: transform; }
+.assembly-img { width: 100%; height: 100%; object-fit: cover; object-position: center 40%; transform-origin: 50% 50%; will-change: transform; }
 .assembly-frame::after { content: ''; position: absolute; inset: 0; background: linear-gradient(0deg, oklch(0.165 0.028 258 / 0.92) 0%, oklch(0.165 0.028 258 / 0.35) 45%, oklch(0.165 0.028 258 / 0.15) 100%); }
 .assembly-caption { position: absolute; left: 0; right: 0; bottom: var(--space-8); z-index: 1; }
 .on-photo { color: var(--on-ink); max-width: 16ch; }

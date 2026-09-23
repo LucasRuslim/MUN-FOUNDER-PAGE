@@ -541,7 +541,7 @@ export default function App() {
         {/* ⑥ The Mission: the General Assembly opens up, then three words */}
         <section className="assembly" id="about" data-theme="ink" aria-label="The Mission">
           <div className="assembly-frame">
-            <img className="assembly-img" src="/un-hall.jpg" alt="The United Nations General Assembly Hall in New York, rows of delegate desks facing the gold emblem wall" />
+            <img className="assembly-img" src="/un-hall.jpg" srcSet="/un-hall-1280.jpg 1280w, /un-hall.jpg 1920w" sizes="100vw" loading="lazy" decoding="async" alt="The United Nations General Assembly Hall in New York, rows of delegate desks facing the gold emblem wall" />
           </div>
           <div className="assembly-caption container">
             <p className="display-2 on-photo"><Line>Where students stop</Line> <Line>being students and</Line> <Line><em>start being delegates.</em></Line></p>

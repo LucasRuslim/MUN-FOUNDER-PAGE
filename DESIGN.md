@@ -48,11 +48,11 @@ Self-hosted through `@fontsource-variable` (no Google Fonts request).
 
 | Family | Use |
 | --- | --- |
-| **Bodoni Moda** (variable, opsz) | Display, headings, names, resolution clauses. High-contrast Didone, like an engraved treaty header. Italic carries emphasis |
+| **Bodoni Moda** (variable, opsz) | Display, headings, names, resolution clauses. High-contrast Didone, like an engraved treaty header. Italic carries emphasis. Always set its optical size explicitly: `--opsz-display` (28) for headings, `--opsz-text` (11) for anything read at small or body sizes. Never leave it on automatic: the 96 display cut's hairlines vanish on screen |
 | **Schibsted Grotesk** (variable) | Body, UI, buttons. A newspaper grotesk: plain and principled |
 | **Martian Mono** (variable, width 90%) | Document symbols, metadata, numbers, the passport's machine-readable line |
 
-Scale (fluid with `clamp()`): hero `3rem → 12.5rem`, display-1 `3rem → 8.5rem`, display-2 `2.5rem → 5.75rem`, lede `1.125 → 1.375rem`, body `1.0625rem`, meta `0.75rem` (mono only). Each step is at least 1.25× the one below.
+Scale (fluid with `clamp()`): hero `3rem → 12.5rem`, display-1 `3rem → 8.5rem`, display-2 `2.5rem → 5.75rem`, lede `1.125 → 1.375rem`, body `1.0625rem`, meta `0.8125rem` (mono only). Each step is at least 1.25× the one below.
 
 Headings: line-height 0.9 to 1.1, `text-wrap: balance`, tracking about −0.02em. Body: line-height 1.5 to 1.6, max about 46ch. All numbers use `tabular-nums`.
 
@@ -90,6 +90,7 @@ Forbidden here (in addition to CLAUDE.md):
 - Uppercase tracked kicker labels. Mono document symbols are the one labelling system, used where a real document would have them.
 - Em dashes in UI copy.
 - Scroll animations that fade content out as it leaves. Reveals play once and content stays visible.
+- Animating `clip-path`, `filter` or layout properties on scroll. Scroll-linked motion uses transforms and opacity only (the photo reveal scales a frame and counter-scales the image), and scrub values stay at or under 0.4 because Lenis already smooths.
 - More than one easing family. Use `--ease-out` (`cubic-bezier(0.16, 1, 0.3, 1)`) and `--ease-inout` for curtains only. No overshoot.
 
 ## 8. Responsive Strategy

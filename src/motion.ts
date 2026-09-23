@@ -90,7 +90,7 @@ export function useChoreography() {
     const ctx = gsap.context(() => {
       /* HERO */
       const heroTl = gsap.timeline({
-        scrollTrigger: { trigger: '.hero', start: 'top top', end: 'bottom bottom', scrub: 0.8 },
+        scrollTrigger: { trigger: '.hero', start: 'top top', end: 'bottom bottom', scrub: 0.4 },
         defaults: { ease: 'none' },
       });
       heroTl
@@ -146,15 +146,31 @@ export function useChoreography() {
       });
     });
 
-    /* PHOTO: pinned expansion only where there is room for it */
+    /* PHOTO: pinned expansion only where there is room for it.
+       Transforms only (GPU-composited): the frame scales up from a small window
+       while the photo counter-scales, so it looks clipped without repainting a
+       clip-path every frame. */
     mm.add('(min-width: 720px)', () => {
+      const frame = document.querySelector<HTMLElement>('.assembly-frame');
+      const img = document.querySelector<HTMLElement>('.assembly-img');
+      if (!frame || !img) return;
+      const state = { p: 0 };
+      const render = () => {
+        const t = state.p;
+        const sx = 0.28 + 0.72 * t;          // window width, fraction of the screen
+        const sy = 0.44 + 0.56 * t;          // window height
+        const zoom = 1.3 - 0.3 * t;          // slow push-out on the photo itself
+        frame.style.transform = `scale(${sx}, ${sy})`;
+        img.style.transform = `scale(${zoom / sx}, ${zoom / sy})`;
+      };
+      render();
       const tl = gsap.timeline({
-        scrollTrigger: { trigger: '.assembly', start: 'top top', end: '+=120%', scrub: 0.8, pin: true },
+        scrollTrigger: { trigger: '.assembly', start: 'top top', end: '+=100%', scrub: true, pin: true },
         defaults: { ease: 'none' },
       });
-      tl.fromTo('.assembly-frame', { clipPath: 'inset(28% 36% 28% 36% round 16px)' }, { clipPath: 'inset(0% 0% 0% 0% round 0px)', duration: 1 }, 0)
-        .fromTo('.assembly-img', { scale: 1.35 }, { scale: 1, duration: 1 }, 0)
+      tl.to(state, { p: 1, duration: 1, ease: 'power1.inOut', onUpdate: render }, 0)
         .from('.assembly-caption .line-inner', { yPercent: 110, stagger: 0.08, duration: 0.35, ease: 'power2.out' }, 0.55);
+      return () => { frame.style.transform = ''; img.style.transform = ''; };
     });
 
     const refresh = () => ScrollTrigger.refresh();
